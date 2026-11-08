@@ -73,6 +73,7 @@ func open() -> void:
 		return
 	is_open = true
 	_root.visible = true
+	AudioManager.play_pause()
 
 
 func close() -> void:

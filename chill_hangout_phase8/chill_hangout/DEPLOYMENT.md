@@ -38,3 +38,7 @@ Tested here: the WebSocket server + clients on one machine (private code join, c
 Free-tier caveats (check Render's current terms): the service sleeps after ~15 min without traffic, so the first player waits up to
 a minute (the browser says so, and waits 75 s); there is a monthly free-hours limit; one small CPU, so a handful of rooms.
 WebSocket runs over TCP, so movement can feel slightly less smooth on poor connections than the UDP route; the HUD shows "ONLINE" instead of a ping.
+
+## Where the server address lives
+`NetProtocol.DEFAULT_HOST` in `scripts/networking/net_protocol.gd` is the one place to change it. Players never see or type an address,
+and any previously saved address is ignored. (The test tools still pass `--host=` explicitly.)

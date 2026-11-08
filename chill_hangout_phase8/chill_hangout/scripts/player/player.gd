@@ -64,7 +64,7 @@ var _locked := false
 var _seat_tween: Tween
 var _step_player: AudioStreamPlayer3D
 var _fx_player: AudioStreamPlayer3D
-var _step_dist := 0.0
+var _lean_tween: Tween
 
 
 func _ready() -> void:
@@ -103,18 +103,18 @@ func _make_audio3d(volume_db: float) -> AudioStreamPlayer3D:
 	return a
 
 
-## One footstep per ~1.7 m walked on the ground. Crouch steps are quieter, sprint steps louder.
-func _footsteps(delta: float, speed: float, on_ground: bool, crouch: bool) -> void:
+## One footstep per foot plant of the walk/run animation (CharacterModel.step_pending), so the sound is locked
+## to the legs: faster running = faster steps automatically. Crouch steps are quieter, sprint steps louder.
+func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool) -> void:
 	if not on_ground or speed < 0.6:
-		_step_dist = 0.0
+		model.step_pending = false
 		return
-	_step_dist += speed * delta
-	if _step_dist < 1.7:
+	if not model.step_pending:
 		return
-	_step_dist = 0.0
+	model.step_pending = false
 	_step_player.stream = AudioManager.get_footstep()
 	_step_player.volume_db = -15.0 if crouch else (-6.0 if speed > 4.5 else -10.0)
-	_step_player.pitch_scale = randf_range(0.9, 1.1)
+	_step_player.pitch_scale = randf_range(0.97, 1.03)
 	_step_player.play()
 
 
@@ -138,14 +138,56 @@ func play_emote(id: int) -> bool:
 	emote = id
 	model.play_emote(id)
 	_play_fx(AudioManager.get_emote_sound(id))
+	if is_local and id == NetProtocol.EMOTE_AURA:
+		_snap_to_wall()
 	emote_changed.emit(id)
 	return true
+
+
+## Aura Farm: turn your back to the nearest wall within reach and step back until you are leaning on it.
+func _snap_to_wall() -> void:
+	var space := get_world_3d().direct_space_state
+	var from := global_position + Vector3(0, 1.0, 0)
+	var best_d := 1.4
+	var found := false
+	var wall_n := Vector3.ZERO
+	var wall_p := Vector3.ZERO
+	for i in 8:
+		var dir := Vector3(sin(TAU * float(i) / 8.0), 0.0, cos(TAU * float(i) / 8.0))
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * best_d)
+		q.collision_mask = 1
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			continue
+		var n: Vector3 = hit["normal"]
+		n.y = 0.0
+		if n.length() < 0.5:
+			continue
+		var d := from.distance_to(hit["position"])
+		if d < best_d:
+			best_d = d
+			found = true
+			wall_n = n.normalized()
+			wall_p = hit["position"]
+	if not found:
+		return
+	var target := Vector3(wall_p.x, global_position.y, wall_p.z) + wall_n * (RADIUS + 0.03)
+	var target_yaw := atan2(-wall_n.x, -wall_n.z)       # model back (+Z) toward the wall
+	var start_yaw := model.rotation.y
+	if _lean_tween:
+		_lean_tween.kill()
+	_lean_tween = create_tween().set_parallel(true)
+	_lean_tween.tween_property(self, "global_position", target, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_lean_tween.tween_method(func(k: float) -> void: model.rotation.y = lerp_angle(start_yaw, target_yaw, k), 0.0, 1.0, 0.3)
 
 
 func cancel_emote() -> void:
 	if emote == -1:
 		return
 	emote = -1
+	if _lean_tween:
+		_lean_tween.kill()
 	model.stop_emote()
 	emote_changed.emit(-1)
 

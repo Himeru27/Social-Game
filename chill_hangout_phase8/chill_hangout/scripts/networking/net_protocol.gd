@@ -4,8 +4,9 @@ extends RefCounted
 ## Bump PROTOCOL_VERSION whenever an RPC signature, the packet layout or a map's seat layout changes;
 ## the server refuses clients with a different version.
 
-const PROTOCOL_VERSION := 2
-const DEFAULT_HOST := "127.0.0.1"
+const PROTOCOL_VERSION := 3
+## The official game service every player connects to. Change this ONE line if the server address changes.
+const DEFAULT_HOST := "wss://social-game-t1gb.onrender.com"
 const DEFAULT_PORT := 7777
 
 const MAX_PLAYERS_PER_ROOM := 10
@@ -31,17 +32,17 @@ const CHAT_REFILL_SEC := 1.2          ## one more message allowed every N second
 const CHAT_REPEAT_MSEC := 3000        ## identical message within this time is dropped
 
 ## The five default emotes. dur = seconds for one-shot emotes (0 for looping ones).
-const EMOTE_WAVE := 0
-const EMOTE_DANCE := 1
-const EMOTE_SIT := 2
-const EMOTE_LAUGH := 3
-const EMOTE_GREETING := 4
+const EMOTE_BRAZILIAN := 0
+const EMOTE_COFFEE := 1
+const EMOTE_STRANGER := 2
+const EMOTE_HI := 3
+const EMOTE_AURA := 4
 const EMOTES: Array[Dictionary] = [
-	{"id": 0, "name": "WAVE", "loop": false, "dur": 2.6},
-	{"id": 1, "name": "DANCE", "loop": true, "dur": 0.0},
-	{"id": 2, "name": "SIT", "loop": true, "dur": 0.0},
-	{"id": 3, "name": "LAUGH", "loop": false, "dur": 2.4},
-	{"id": 4, "name": "GREETING", "loop": false, "dur": 2.8},
+	{"id": 0, "name": "BRAZILIAN TIKTOK DANCE", "loop": true, "dur": 0.0},
+	{"id": 1, "name": "SIPPING A COFFEE", "loop": false, "dur": 7.0},
+	{"id": 2, "name": "BABY'S STRANGER THINGS DANCE", "loop": true, "dur": 0.0},
+	{"id": 3, "name": "HI", "loop": false, "dur": 2.6},
+	{"id": 4, "name": "AURA FARM", "loop": true, "dur": 0.0},
 ]
 const EMOTE_COOLDOWN_MSEC := 300
 const EMOTE_CANCEL_SPEED_Q := 40      ## server cancels an emote if the player moves faster than 2 m/s

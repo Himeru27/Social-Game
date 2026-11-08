@@ -33,6 +33,11 @@ var _pose := -1
 var _pt := 0.0            ## seconds since the current pose started
 var _ew := 0.0            ## emote blend weight 0..1
 var _fore := 0.3
+var _cup: Node3D          ## coffee mug held by the right hand during the coffee emote
+var _hi: Sprite3D         ## pixel-art "HI" shown next to the head during the hi emote
+## Gait sync: set to true on every foot plant (see animate). Player consumes it to play the footstep sound.
+var step_pending := false
+var _step_idx := -1000000
 ## Height of the seat surface in world units (set by Player.sit).
 var sit_height := 0.45
 
@@ -337,9 +342,6 @@ func _build_accessories(bits: int, col: Color) -> void:
 func animate(delta: float, speed: float, crouching: bool, sitting: bool = false) -> void:
 	_t += delta
 	var seat_h := sit_height
-	if _emote == NetProtocol.EMOTE_SIT:
-		sitting = true
-		seat_h = 0.04          # sit on the floor
 	var moving := clampf(speed / 2.0, 0.0, 1.0)
 	var k := 1.0 - exp(-10.0 * delta)
 	_run = lerpf(_run, clampf((speed - 3.2) / 2.4, 0.0, 1.0), k)
@@ -347,6 +349,14 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false)
 	var amp_target := moving * lerpf(0.5, 0.85, _run) * lerpf(1.0, 0.5, _crouch)
 	_amp = lerpf(_amp, amp_target, k)
 	_phase += delta * speed * 2.3
+	# A foot lands each time sin(_phase) peaks (both legs are then at full stride): every PI of phase.
+	var idx := floori((_phase - PI * 0.5) / PI)
+	if _step_idx == -1000000:
+		_step_idx = idx
+	elif idx != _step_idx:
+		_step_idx = idx
+		if _amp > 0.1:
+			step_pending = true
 
 	_sit = lerpf(_sit, 1.0 if sitting else 0.0, 1.0 - exp(-9.0 * delta))
 	var s := sin(_phase)
@@ -400,29 +410,41 @@ func _apply_emote(delta: float) -> void:
 			_emote = -1
 			emote_ended.emit()
 	_ew = move_toward(_ew, 1.0 if _emote >= 0 else 0.0, delta * 5.0)
+	var w := smoothstep(0.0, 1.0, _ew)
+	_update_props(w)
 	if _ew <= 0.0 or _pose < 0:
 		return
-	var w := smoothstep(0.0, 1.0, _ew)
 	var t := _pt
 	var p := {}
 	match _pose:
-		NetProtocol.EMOTE_WAVE:
+		NetProtocol.EMOTE_BRAZILIAN:
+			# Funk-style: fast bounce, hips swaying side to side, arms pumping, knees alternating.
+			var s := sin(t * 8.0)
+			var sway := sin(t * 4.0)
+			p = {"body_y": absf(s) * 0.05, "body_z": sway * 0.16, "body_x": 0.08,
+				"shl_x": 0.9 + 0.5 * s, "shr_x": 0.9 - 0.5 * s, "shl_z": 0.35, "shr_z": -0.35,
+				"ell_x": 1.4, "elr_x": 1.4,
+				"hipl_x": maxf(0.0, sway) * 0.55, "hipr_x": maxf(0.0, -sway) * 0.55,
+				"kneel_x": -maxf(0.0, sway) * 0.6, "kneer_x": -maxf(0.0, -sway) * 0.6}
+		NetProtocol.EMOTE_COFFEE:
+			var r := maxf(_sip(t, 1.2, 1.8, 2.8, 3.4), _sip(t, 4.0, 4.6, 5.6, 6.2))
+			p = {"shr_x": lerpf(0.55, 1.0, r), "shr_z": lerpf(-0.25, -0.5, r), "elr_x": lerpf(1.5, 2.15, r),
+				"body_x": -0.07 * r, "body_z": sin(t * 1.4) * 0.015}
+		NetProtocol.EMOTE_STRANGER:
+			# 80s step-touch: alternating kicks, snapping arms at chest height, little head-bob.
+			var s := sin(t * 3.6)
+			p = {"body_y": absf(s) * 0.03, "body_z": s * 0.1, "body_x": 0.06 * sin(t * 7.2),
+				"shl_x": 0.8 + 0.25 * s, "shr_x": 0.8 - 0.25 * s, "shl_z": 0.3, "shr_z": -0.3,
+				"ell_x": 1.7, "elr_x": 1.7,
+				"hipl_x": maxf(0.0, s) * 0.5, "hipr_x": maxf(0.0, -s) * 0.5,
+				"kneel_x": -maxf(0.0, s) * 0.3, "kneer_x": -maxf(0.0, -s) * 0.3}
+		NetProtocol.EMOTE_HI:
 			p = {"shr_z": 2.75, "shr_x": 0.0, "elr_z": sin(t * 9.0) * 0.55, "elr_x": 0.15}
-		NetProtocol.EMOTE_DANCE:
-			var s := sin(t * 5.5)
-			p = {"body_y": absf(s) * 0.06, "body_z": s * 0.1, "shl_z": -(1.9 + 0.5 * s), "shr_z": 1.9 - 0.5 * s,
-				"shl_x": 0.0, "shr_x": 0.0, "ell_x": 0.6, "elr_x": 0.6, "hipl_x": s * 0.45, "hipr_x": -s * 0.45,
-				"kneel_x": -maxf(0.0, s) * 0.7, "kneer_x": -maxf(0.0, -s) * 0.7}
-		NetProtocol.EMOTE_SIT:
-			p = {"body_z": sin(t * 1.2) * 0.02}
-		NetProtocol.EMOTE_LAUGH:
-			p = {"body_x": 0.12, "body_y": absf(sin(t * 22.0)) * 0.025, "body_z": sin(t * 18.0) * 0.04,
-				"shl_x": 0.8, "ell_x": 1.5, "shr_x": 0.5, "shr_z": 0.4, "elr_x": 1.2}
-		NetProtocol.EMOTE_GREETING:
-			var dur := float(NetProtocol.EMOTES[NetProtocol.EMOTE_GREETING]["dur"])
-			var bow := sin(clampf(t / dur, 0.0, 1.0) * PI)
-			p = {"shl_z": -1.1, "shr_z": 1.1, "shl_x": 0.5, "shr_x": 0.5, "ell_x": 0.5 + sin(t * 4.0) * 0.1,
-				"elr_x": 0.5 + sin(t * 4.0) * 0.1, "body_x": -0.3 * bow}
+		NetProtocol.EMOTE_AURA:
+			# Leaning back against a wall: arms crossed, ankles crossed, feet a little out front.
+			p = {"body_x": 0.28 + sin(t * 1.3) * 0.01, "body_z": 0.0,
+				"shl_x": 0.8, "shl_z": 0.5, "ell_x": 2.0, "shr_x": 0.8, "shr_z": -0.5, "elr_x": 2.0,
+				"hipl_x": -0.16, "hipr_x": -0.05, "kneel_x": 0.0, "kneer_x": -0.5}
 	_mix(_sh_l, "x", p, "shl_x", w)
 	_mix(_sh_l, "z", p, "shl_z", w)
 	_mix(_sh_r, "x", p, "shr_x", w)
@@ -438,6 +460,100 @@ func _apply_emote(delta: float) -> void:
 	_mix(_knee_r, "x", p, "kneer_x", w)
 	if p.has("body_y"):
 		body.position.y += float(p["body_y"]) * w
+	if _cup != null and is_instance_valid(_cup) and _pose == NetProtocol.EMOTE_COFFEE:
+		# Keep the mug upright in world space whatever the arm does; tilt it toward the mouth while sipping.
+		var r2 := maxf(_sip(t, 1.2, 1.8, 2.8, 3.4), _sip(t, 4.0, 4.6, 5.6, 6.2))
+		_cup.rotation.x = -(_sh_r.rotation.x + _elb_r.rotation.x + body.rotation.x) - 0.6 * r2
+
+
+## 0 -> 1 between a and b, holds until c, back to 0 at d (used for the sips).
+func _sip(t: float, a: float, b: float, c: float, d: float) -> float:
+	return smoothstep(a, b, t) * (1.0 - smoothstep(c, d, t))
+
+
+## Creates / removes the emote props (coffee mug, "HI" text) so they only exist while their emote is active.
+func _update_props(w: float) -> void:
+	var want_cup := _emote == NetProtocol.EMOTE_COFFEE
+	if want_cup and (_cup == null or not is_instance_valid(_cup)):
+		_cup = _build_cup()
+	if _cup != null and is_instance_valid(_cup):
+		if not want_cup and (_ew <= 0.0 or _pose != NetProtocol.EMOTE_COFFEE):
+			_cup.queue_free()
+			_cup = null
+		else:
+			_cup.visible = w > 0.02
+			_cup.scale = Vector3.ONE * maxf(w, 0.01)    # pops into the hand
+	var want_hi := _emote == NetProtocol.EMOTE_HI
+	if want_hi and (_hi == null or not is_instance_valid(_hi)):
+		_hi = _build_hi()
+	if _hi != null and is_instance_valid(_hi):
+		if not want_hi:
+			_hi.queue_free()
+			_hi = null
+		else:
+			var dur := float(NetProtocol.EMOTES[NetProtocol.EMOTE_HI]["dur"])
+			var pop := clampf(_pt / 0.18, 0.0, 1.0)
+			var out := clampf((dur - _pt) / 0.3, 0.0, 1.0)
+			var k := (pop + sin(pop * PI) * 0.25) * out         # little overshoot, then shrinks away
+			_hi.scale = Vector3.ONE * maxf(k, 0.01)
+			_hi.position.y = 1.0 + floorf(sin(_pt * 6.0) * 2.0) * 0.012    # steps up and down (retro, not smooth)
+
+
+func _build_cup() -> Node3D:
+	var cup := Node3D.new()
+	LowPoly.cylinder(cup, 0.048, 0.04, 0.1, 8, Color("#f1ece4"), Vector3.ZERO)
+	LowPoly.cylinder(cup, 0.042, 0.042, 0.008, 8, Color("#4a2c1a"), Vector3(0, 0.048, 0))
+	LowPoly.box(cup, Vector3(0.012, 0.06, 0.03), Color("#f1ece4"), Vector3(0.062, 0.0, 0))
+	cup.position = Vector3(0, -_fore + 0.02, -0.02)
+	_elb_r.add_child(cup)
+	return cup
+
+
+func _build_hi() -> Sprite3D:
+	var sp := Sprite3D.new()
+	sp.texture = _pixel_text_texture("HI")
+	sp.pixel_size = 0.045
+	sp.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sp.shaded = false
+	sp.double_sided = true
+	sp.transparent = true
+	sp.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	sp.offset = Vector2(11.0, 0.0)          # beside the head (in texture pixels, so it holds from any camera angle)
+	sp.position = Vector3(0, 1.0, 0)
+	body.add_child(sp)
+	return sp
+
+
+## 5x7 pixel font (only the letters we need), drawn with a dark outline + drop shadow for a retro look.
+const _PIXEL_FONT := {
+	"H": ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
+	"I": ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
+}
+
+
+static func _pixel_text_texture(text: String) -> ImageTexture:
+	var cols := text.length() * 6 - 1
+	var img := Image.create(cols + 4, 7 + 4, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var lit: Array[Vector2i] = []
+	for i in text.length():
+		var rows: Array = _PIXEL_FONT.get(text[i], [])
+		for y in rows.size():
+			var row: String = rows[y]
+			for x in row.length():
+				if row[x] == "1":
+					lit.append(Vector2i(2 + i * 6 + x, 2 + y))
+	var dark := Color("#1b1030")
+	for q in lit:
+		for dx in range(-1, 2):
+			for dy in range(-1, 3):          # dy up to +2: extra row below = drop shadow
+				var o := q + Vector2i(dx, dy)
+				if o.x >= 0 and o.y >= 0 and o.x < img.get_width() and o.y < img.get_height():
+					img.set_pixelv(o, dark)
+	for q in lit:
+		img.set_pixelv(q, Color("#fff3a8"))
+	return ImageTexture.create_from_image(img)
 
 
 func _mix(n: Node3D, axis: String, p: Dictionary, key: String, w: float) -> void:

@@ -106,10 +106,13 @@ func _build() -> void:
 	_host_edit = LineEdit.new()
 	_host_edit.text = Net.host
 	_host_edit.custom_minimum_size.x = 260
+	_host_edit.visible = false
+	cl.visible = false
 	conn.add_child(_host_edit)
 	_port_edit = LineEdit.new()
 	_port_edit.text = str(Net.port)
 	_port_edit.custom_minimum_size.x = 90
+	_port_edit.visible = false
 	conn.add_child(_port_edit)
 	var reconnect := _button(conn, "RECONNECT", _on_reconnect_pressed, false)
 	reconnect.custom_minimum_size.x = 150
@@ -396,15 +399,6 @@ func _on_refresh_pressed() -> void:
 
 
 func _on_reconnect_pressed() -> void:
-	var p := _port_edit.text.strip_edges()
-	if not p.is_valid_int():
-		_toasts.push("The port must be a number.", Color("#ff6b6b"))
-		return
-	GameSettings.set_value("server_host", _host_edit.text.strip_edges())
-	GameSettings.set_value("server_port", p.to_int())
-	GameSettings.save_settings()
-	Net.host = _host_edit.text.strip_edges()
-	Net.port = p.to_int()
 	Net.disconnect_from_server()
 	_connect()
 

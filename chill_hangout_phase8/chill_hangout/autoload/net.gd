@@ -52,8 +52,8 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	host = str(GameSettings.get_value("server_host"))
-	port = int(GameSettings.get_value("server_port"))
+	host = NetProtocol.DEFAULT_HOST      # fixed in code: players never enter an address
+	port = NetProtocol.DEFAULT_PORT
 
 
 func _process(_delta: float) -> void:

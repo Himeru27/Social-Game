@@ -22,7 +22,7 @@ const DEFAULTS := {
 	"resolution_index": 0,
 	"fullscreen": false,
 	"fov": 75.0,
-	"server_host": "wss://social-game-t1gb.onrender.com",
+	"server_host": "127.0.0.1",
 	"server_port": 7777,
 }
 

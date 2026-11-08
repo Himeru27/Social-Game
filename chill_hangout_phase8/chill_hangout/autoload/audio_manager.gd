@@ -1,14 +1,22 @@
 extends Node
 ## Autoload "AudioManager": Music/SFX buses, volume control, UI sounds, music playback.
 ## Drop an .ogg at res://assets/audio/music/menu_theme.ogg and it plays automatically.
+## Your own files (.ogg / .mp3 / .wav, any of them) override the generated sounds:
+##   assets/audio/sfx/footstep, button_hover, button_click, pause_menu
+##   assets/audio/music/menu_theme (title screen), lobby_theme (lobby)
+
+## Music level (dB, before the player's Music slider) for real music files, by track: tuned to sit under footsteps and chat.
+const MUSIC_DB := {"menu": -6.0, "lobby": -10.0}
+const _AUDIO_EXTS := ["ogg", "mp3", "wav"]
 
 var _music: AudioStreamPlayer
 var _sfx: AudioStreamPlayer
-var _click: AudioStreamWAV
-var _hover: AudioStreamWAV
+var _click: AudioStream
+var _hover: AudioStream
+var _pause: AudioStream
 var _sit: AudioStreamWAV
 var _ambient: AudioStreamPlayer
-var _steps: Array[AudioStreamWAV] = []
+var _steps: Array[AudioStream] = []
 var _emote_sfx: Dictionary = {}       ## emote id -> AudioStreamWAV
 var _music_cache: Dictionary = {}     ## "menu" / "lobby" -> looping AudioStreamWAV
 var _current_music := ""
@@ -34,10 +42,20 @@ func _ready() -> void:
 	rng.seed = 7
 	for i in 3:
 		_steps.append(_noise_burst(0.11, 900.0 + i * 220.0, rng))
-	_emote_sfx[0] = _sweep(500.0, 900.0, 0.35)                          # wave: soft whoosh-chirp
-	_emote_sfx[2] = _tone(110.0, 0.25)                                  # floor sit: thud
-	_emote_sfx[3] = _laugh()
-	_emote_sfx[4] = _notes([523.25, 659.25], 0.14)                      # greeting: friendly two-note chime
+	_emote_sfx[NetProtocol.EMOTE_HI] = _sweep(500.0, 900.0, 0.35)       # hi: soft whoosh-chirp
+	var custom_step := _find_audio("res://assets/audio/sfx/footstep")
+	if custom_step != "":
+		_steps.clear()
+		_steps.append(load(custom_step))
+	var custom_click := _find_audio("res://assets/audio/sfx/button_click")
+	if custom_click != "":
+		_click = load(custom_click)
+	var custom_hover := _find_audio("res://assets/audio/sfx/button_hover")
+	if custom_hover != "":
+		_hover = load(custom_hover)
+	var custom_pause := _find_audio("res://assets/audio/sfx/pause_menu")
+	if custom_pause != "":
+		_pause = load(custom_pause)
 	GameSettings.settings_changed.connect(apply_volumes)
 	apply_volumes()
 
@@ -50,6 +68,16 @@ func apply_volumes() -> void:
 
 func play_click() -> void:
 	_sfx.stream = _click
+	_sfx.volume_db = -4.0
+	_sfx.play()
+
+
+## Plays when the pause menu opens (only if assets/audio/sfx/pause_menu.* exists).
+func play_pause() -> void:
+	if _pause == null:
+		return
+	_sfx.stream = _pause
+	_sfx.volume_db = -4.0
 	_sfx.play()
 
 
@@ -72,8 +100,10 @@ func play_hover() -> void:
 func play_music(path: String, fallback := "") -> void:
 	var stream: AudioStream = null
 	var key := path
-	if ResourceLoader.exists(path):
-		stream = load(path)
+	var found := _find_audio(path)
+	if found != "":
+		key = found
+		stream = load(found)
 		if "loop" in stream:
 			stream.loop = true
 	elif fallback != "":
@@ -87,8 +117,21 @@ func play_music(path: String, fallback := "") -> void:
 		return
 	_current_music = key
 	_music.stream = stream
-	_music.volume_db = -10.0 if fallback != "" and key.begins_with("builtin:") else 0.0
+	if key.begins_with("builtin:"):
+		_music.volume_db = -10.0
+	else:
+		_music.volume_db = float(MUSIC_DB.get(fallback, 0.0))
 	_music.play()
+
+
+## Returns the first existing file for `path` with any of the supported extensions ("" if none).
+func _find_audio(path: String) -> String:
+	var base := path.get_basename()
+	for ext in _AUDIO_EXTS:
+		var candidate: String = "%s.%s" % [base, ext]
+		if ResourceLoader.exists(candidate):
+			return candidate
+	return ""
 
 
 func stop_music() -> void:
@@ -96,7 +139,7 @@ func stop_music() -> void:
 	_current_music = ""
 
 
-func get_footstep() -> AudioStreamWAV:
+func get_footstep() -> AudioStream:
 	return _steps[randi() % _steps.size()]
 
 

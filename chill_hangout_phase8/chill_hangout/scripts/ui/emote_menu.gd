@@ -24,7 +24,7 @@ func _ready() -> void:
 	_panel.anchor_bottom = 1.0
 	_panel.offset_left = -330
 	_panel.offset_right = 330
-	_panel.offset_top = -230
+	_panel.offset_top = -270
 	_panel.offset_bottom = -90
 	_panel.visible = false
 	root.add_child(_panel)
@@ -43,7 +43,7 @@ func _ready() -> void:
 	for e in NetProtocol.EMOTES:
 		var id := int(e["id"])
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(120, 100)
+		b.custom_minimum_size = Vector2(120, 134)
 		b.pressed.connect(func() -> void:
 			AudioManager.play_click()
 			_choose(id))
@@ -61,8 +61,10 @@ func _ready() -> void:
 		col.add_child(icon)
 		var l := Label.new()
 		l.text = "%d  %s" % [id + 1, e["name"]]
-		l.add_theme_font_size_override("font_size", 15)
+		l.add_theme_font_size_override("font_size", 13)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = 108
 		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col.add_child(l)
 		row.add_child(b)
@@ -112,37 +114,50 @@ class EmoteIcon:
 		var w := 3.0
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.06), true)
 		var cx := size.x * 0.5
-		if emote_id == NetProtocol.EMOTE_LAUGH:
-			draw_circle(Vector2(cx, 28), 20, a)
-			draw_circle(Vector2(cx - 7, 22), 2.5, UITheme.BG)
-			draw_circle(Vector2(cx + 7, 22), 2.5, UITheme.BG)
-			draw_arc(Vector2(cx, 30), 9, 0.1, PI - 0.1, 10, UITheme.BG, 3.0)
-			draw_line(Vector2(cx - 9, 31), Vector2(cx + 9, 31), UITheme.BG, 3.0)
-			return
 		draw_circle(Vector2(cx, 11), 6, c)
 		match emote_id:
-			NetProtocol.EMOTE_WAVE:
+			NetProtocol.EMOTE_BRAZILIAN:
+				draw_line(Vector2(cx, 18), Vector2(cx + 3, 36), c, w)
+				draw_line(Vector2(cx, 22), Vector2(cx - 13, 18), a, w)
+				draw_line(Vector2(cx - 13, 18), Vector2(cx - 9, 8), a, w)
+				draw_line(Vector2(cx, 22), Vector2(cx + 13, 28), a, w)
+				draw_line(Vector2(cx + 13, 28), Vector2(cx + 16, 18), a, w)
+				draw_line(Vector2(cx + 3, 36), Vector2(cx - 8, 52), c, w)
+				draw_line(Vector2(cx + 3, 36), Vector2(cx + 14, 44), c, w)
+				draw_line(Vector2(cx + 14, 44), Vector2(cx + 12, 52), c, w)
+			NetProtocol.EMOTE_COFFEE:
 				draw_line(Vector2(cx, 18), Vector2(cx, 36), c, w)
-				draw_line(Vector2(cx, 22), Vector2(cx + 14, 6), a, w)
-				draw_arc(Vector2(cx + 18, 4), 5, PI, TAU, 6, a, 2.0)
+				draw_line(Vector2(cx, 22), Vector2(cx + 10, 28), a, w)
+				draw_line(Vector2(cx + 10, 28), Vector2(cx + 8, 14), a, w)
+				draw_rect(Rect2(cx + 6, 8, 9, 9), a, true)
+				draw_arc(Vector2(cx + 16, 12), 3, -PI * 0.5, PI * 0.5, 6, a, 2.0)
 				draw_line(Vector2(cx, 22), Vector2(cx - 9, 32), c, w)
 				_legs(cx, 36, c, w)
-			NetProtocol.EMOTE_DANCE:
+			NetProtocol.EMOTE_STRANGER:
 				draw_line(Vector2(cx, 18), Vector2(cx, 36), c, w)
-				draw_line(Vector2(cx, 22), Vector2(cx - 14, 8), a, w)
 				draw_line(Vector2(cx, 22), Vector2(cx + 14, 8), a, w)
-				draw_line(Vector2(cx, 36), Vector2(cx - 10, 52), c, w)
-				draw_line(Vector2(cx, 36), Vector2(cx + 12, 48), c, w)
-			NetProtocol.EMOTE_SIT:
-				draw_line(Vector2(cx - 6, 18), Vector2(cx - 6, 38), c, w)
-				draw_line(Vector2(cx - 6, 38), Vector2(cx + 14, 38), a, w)
-				draw_line(Vector2(cx + 14, 38), Vector2(cx + 14, 50), a, w)
-				draw_line(Vector2(cx - 6, 24), Vector2(cx + 6, 32), c, w)
-			NetProtocol.EMOTE_GREETING:
-				draw_line(Vector2(cx, 18), Vector2(cx, 36), c, w)
-				draw_line(Vector2(cx, 22), Vector2(cx - 15, 30), a, w)
-				draw_line(Vector2(cx, 22), Vector2(cx + 15, 30), a, w)
-				_legs(cx, 36, c, w)
+				draw_line(Vector2(cx, 22), Vector2(cx - 12, 30), a, w)
+				draw_line(Vector2(cx - 12, 30), Vector2(cx - 6, 36), a, w)
+				draw_line(Vector2(cx, 36), Vector2(cx - 6, 52), c, w)
+				draw_line(Vector2(cx, 36), Vector2(cx + 14, 42), c, w)
+				draw_line(Vector2(cx + 14, 42), Vector2(cx + 14, 52), c, w)
+			NetProtocol.EMOTE_HI:
+				draw_line(Vector2(cx - 8, 18), Vector2(cx - 8, 36), c, w)
+				draw_line(Vector2(cx - 8, 22), Vector2(cx + 4, 6), a, w)
+				draw_line(Vector2(cx - 8, 22), Vector2(cx - 17, 32), c, w)
+				draw_line(Vector2(cx - 8, 36), Vector2(cx - 15, 52), c, w)
+				draw_line(Vector2(cx - 8, 36), Vector2(cx - 1, 52), c, w)
+				# pixel "HI" next to the head
+				for px in [Vector2(6, 4), Vector2(6, 8), Vector2(6, 12), Vector2(10, 8), Vector2(14, 4), Vector2(14, 8), Vector2(14, 12),
+						Vector2(20, 4), Vector2(20, 8), Vector2(20, 12)]:
+					draw_rect(Rect2(cx + px.x, px.y, 3, 3), a, true)
+			NetProtocol.EMOTE_AURA:
+				draw_line(Vector2(cx + 14, 2), Vector2(cx + 14, 54), a, w)
+				draw_line(Vector2(cx + 4, 18), Vector2(cx, 36), c, w)
+				draw_line(Vector2(cx + 3, 24), Vector2(cx - 6, 29), a, w)
+				draw_line(Vector2(cx - 6, 29), Vector2(cx + 5, 31), a, w)
+				draw_line(Vector2(cx, 36), Vector2(cx - 8, 52), c, w)
+				draw_line(Vector2(cx, 36), Vector2(cx + 2, 52), c, w)
 
 	func _legs(cx: float, y: float, c: Color, w: float) -> void:
 		draw_line(Vector2(cx, y), Vector2(cx - 8, 52), c, w)
