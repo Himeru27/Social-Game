@@ -1,0 +1,18 @@
+# Install: copy to /etc/systemd/system/, adjust paths, then:
+#   systemctl daemon-reload && systemctl enable --now chill-hangout
+[Unit]
+Description=Chill Hangout dedicated server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=game
+WorkingDirectory=/opt/chill_hangout
+ExecStart=/usr/local/bin/godot --headless --path /opt/chill_hangout res://scenes/server/dedicated_server.tscn -- --port=7777 --empty-timeout=60
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

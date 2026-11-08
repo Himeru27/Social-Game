@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: chill-hangout
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.ws
+    plan: free
