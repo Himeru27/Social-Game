@@ -42,7 +42,7 @@ func _ready() -> void:
 	root.add_child(_hint)
 
 	_conn = Label.new()
-	_conn.position = Vector2(24, 82)
+	_conn.position = Vector2(24, 58)      # moves down to y=82 if a hint line is set (offline lobbies)
 	_conn.add_theme_font_size_override("font_size", 14)
 	_conn.add_theme_color_override("font_outline_color", UITheme.BG)
 	_conn.add_theme_constant_override("outline_size", 5)
@@ -119,6 +119,7 @@ func set_prompt(text: String) -> void:
 
 func set_hint(text: String) -> void:
 	_hint.text = text
+	_conn.position.y = 82.0 if text != "" else 58.0
 
 
 func _process(delta: float) -> void:

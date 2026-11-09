@@ -2,6 +2,7 @@ class_name RoomInfoPanel
 extends CanvasLayer
 ## Top-right panel in an online room: server name, invitation code (+ COPY), PLAYERS ONLINE n/10,
 ## ping. The code is shown to every member of a private room so they can invite friends.
+## Styled like the server browser rows: slanted dark strips, Anton headings.
 
 var _players_l: Label
 var _ping_l: Label
@@ -23,52 +24,69 @@ func build(info: Dictionary) -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(320, 0)
-	panel.anchor_left = 1.0
-	panel.anchor_right = 1.0
-	panel.offset_left = -336
-	panel.offset_right = -16
-	panel.offset_top = 16
-	root.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	panel.add_child(v)
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(330, 0)
+	col.anchor_left = 1.0
+	col.anchor_right = 1.0
+	col.offset_left = -366      # the slant overhangs a little, so keep clear of the edge
+	col.offset_right = -36
+	col.offset_top = 16
+	col.add_theme_constant_override("separation", 6)
+	root.add_child(col)
 
 	var title := Label.new()
 	title.text = str(info.get("room_name", "Server"))
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", UITheme.ACCENT)
+	title.add_theme_font_override("font", MenuStyle.FONT)
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", MenuStyle.ORANGE)
 	title.clip_text = true
-	v.add_child(title)
+	col.add_child(_strip(title))
 
+	var detail := VBoxContainer.new()
+	detail.add_theme_constant_override("separation", 4)
 	var sub := Label.new()
 	sub.text = "%s  |  %s" % [str(info.get("map_name", "")), "PRIVATE" if info.get("private", false) else "PUBLIC"]
-	sub.add_theme_font_size_override("font_size", 14)
-	sub.add_theme_color_override("font_color", UITheme.MUTED)
-	v.add_child(sub)
-
+	sub.add_theme_font_size_override("font_size", 15)
+	sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
+	detail.add_child(sub)
 	if _code != "":
 		var row := HBoxContainer.new()
-		v.add_child(row)
+		row.add_theme_constant_override("separation", 8)
+		detail.add_child(row)
 		var code_l := Label.new()
 		code_l.text = "CODE: " + _code
-		code_l.add_theme_color_override("font_color", UITheme.TEAL)
+		code_l.add_theme_font_override("font", MenuStyle.FONT)
+		code_l.add_theme_font_size_override("font_size", 20)
+		code_l.add_theme_color_override("font_color", MenuStyle.WHITE)
 		code_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(code_l)
 		_copy = Button.new()
 		_copy.text = "COPY"
-		_copy.add_theme_font_size_override("font_size", 14)
+		_copy.custom_minimum_size = Vector2(84, 32)
+		_copy.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		MenuStyle.style_button(_copy, 16, Vector4(18, 10, 2, 2))
 		_copy.pressed.connect(_on_copy)
 		row.add_child(_copy)
+	col.add_child(_strip(detail))
 
 	_players_l = Label.new()
-	v.add_child(_players_l)
+	_players_l.add_theme_font_override("font", MenuStyle.FONT)
+	_players_l.add_theme_font_size_override("font_size", 24)
+	_players_l.add_theme_color_override("font_color", MenuStyle.WHITE)
+	col.add_child(_strip(_players_l))
+
 	_ping_l = Label.new()
-	_ping_l.add_theme_font_size_override("font_size", 14)
-	_ping_l.add_theme_color_override("font_color", UITheme.MUTED)
-	v.add_child(_ping_l)
+	MenuStyle.outlined(_ping_l, 16, Color(1, 1, 1, 0.9), 5)
+	col.add_child(_ping_l)
 	set_count(1)
+
+
+## One slanted dark strip around a piece of content.
+func _strip(content: Control) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", MenuStyle.strip(Color(MenuStyle.INK, 0.92), Color(1, 1, 1, 0.55), 1, Vector4(34, 22, 7, 7)))
+	pc.add_child(content)
+	return pc
 
 
 func set_count(n: int) -> void:

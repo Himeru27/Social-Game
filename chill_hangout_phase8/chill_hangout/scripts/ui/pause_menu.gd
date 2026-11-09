@@ -1,7 +1,8 @@
 class_name PauseMenu
 extends CanvasLayer
 ## In-game pause menu. It does NOT pause the game: the world, the network and every other player
-## keep running while it is open (the tree is never paused). Styled like the main menu.
+## keep running while it is open (the tree is never paused). Same look as the main menu and the
+## server browser: Anton title, slanted dark strips, white + orange.
 
 signal resumed
 signal join_requested
@@ -23,44 +24,44 @@ func _ready() -> void:
 	_root.visible = false
 	add_child(_root)
 	var dim := ColorRect.new()
-	dim.color = Color(UITheme.BG, 0.65)
+	dim.color = Color(0.04, 0.1, 0.16, 0.5)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.add_child(dim)
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_root.add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(440, 0)
-	center.add_child(panel)
-	var m := MarginContainer.new()
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + side, 26)
-	panel.add_child(m)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
-	m.add_child(v)
-	var title := Label.new()
-	title.text = "PAUSED"
-	title.add_theme_font_size_override("font_size", 40)
-	title.add_theme_color_override("font_color", UITheme.ACCENT)
-	v.add_child(title)
+		margin.add_theme_constant_override("margin_" + side, 48)
+	_root.add_child(margin)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(col)
+
+	col.add_child(MenuStyle.title_word("PAUSED", MenuStyle.ORANGE, 72))
 	var sub := Label.new()
 	sub.text = "The server keeps running - others can still see you."
-	sub.add_theme_font_size_override("font_size", 15)
-	sub.add_theme_color_override("font_color", UITheme.MUTED)
-	v.add_child(sub)
-	_button(v, "RESUME", close)
-	_button(v, "SETTINGS", _open_settings)
-	_button(v, "JOIN SERVER", func() -> void: join_requested.emit())
-	_button(v, "LEAVE SERVER", func() -> void: leave_requested.emit())
-	_button(v, "QUIT GAME", func() -> void: quit_requested.emit())
+	MenuStyle.outlined(sub, 20, MenuStyle.WHITE, 8)
+	col.add_child(sub)
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 14
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(gap)
+
+	_button(col, "RESUME", close)
+	_button(col, "SETTINGS", _open_settings)
+	_button(col, "JOIN SERVER", func() -> void: join_requested.emit())
+	_button(col, "LEAVE SERVER", func() -> void: leave_requested.emit())
+	_button(col, "QUIT GAME", func() -> void: quit_requested.emit())
 
 
 func _button(parent: Control, text: String, cb: Callable) -> void:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 52)
-	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(400, 56)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	MenuStyle.style_button(b, 30)
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()
 		cb.call())
@@ -73,6 +74,8 @@ func open() -> void:
 		return
 	is_open = true
 	_root.visible = true
+	_root.modulate.a = 0.0
+	create_tween().tween_property(_root, "modulate:a", 1.0, 0.15)
 	AudioManager.play_pause()
 
 

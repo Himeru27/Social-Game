@@ -18,6 +18,7 @@ var chat: ChatUI
 var emote_menu: EmoteMenu
 var player_list: PlayerListPanel
 var pause_menu: PauseMenu
+var intro: IntroPopup
 
 var _seat_ids: Dictionary = {}        # Seat -> id
 var _send_acc := 0.0
@@ -62,11 +63,6 @@ func _ready() -> void:
 	hud = GameHUD.new()
 	add_child(hud)
 	hud.bind_player(player)
-	hud.set_hint("%s%s%s%s move | %s sprint | %s crouch | %s sit | %s chat | %s emotes | %s players | Esc pause menu" % [
-		GameSettings.key_label("move_forward"), GameSettings.key_label("move_left"),
-		GameSettings.key_label("move_back"), GameSettings.key_label("move_right"),
-		GameSettings.key_label("sprint"), GameSettings.key_label("crouch"), GameSettings.key_label("interact"),
-		GameSettings.key_label("chat"), GameSettings.key_label("emote_menu"), GameSettings.key_label("player_list")])
 	info_panel = RoomInfoPanel.new()
 	add_child(info_panel)
 	info_panel.build(info)
@@ -89,6 +85,9 @@ func _ready() -> void:
 	pause_menu.join_requested.connect(join_another_server)
 	pause_menu.leave_requested.connect(leave_server)
 	pause_menu.quit_requested.connect(quit_game)
+	intro = IntroPopup.new()
+	add_child(intro)
+	intro.closed.connect(_on_overlay_closed)
 	player.emote_changed.connect(func(id: int) -> void: Net.send_emote(id))
 
 	for id in Net.room_players:
@@ -111,6 +110,11 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	AudioManager.play_music("res://assets/audio/music/lobby_theme.ogg", "lobby")
 	AudioManager.start_ambient()
+	# First time ever in a server: show the controls card (the player closes it when done reading).
+	if not GameSettings.has_seen(IntroPopup.FLAG):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		player.input_enabled = false
+		intro.open()
 	if str(info["code"]) != "":
 		toasts.push("Private server created. Share the code %s with friends (COPY button, top right)." % info["code"], UITheme.TEAL, 7.0)
 
@@ -280,7 +284,7 @@ func _on_emote_event(peer_id: int, emote_id: int) -> void:
 
 
 func _overlay_open() -> bool:
-	return chat.is_open or emote_menu.is_open or pause_menu.is_open
+	return chat.is_open or emote_menu.is_open or pause_menu.is_open or intro.is_open
 
 
 func _on_chat_opened() -> void:
@@ -309,6 +313,7 @@ func _on_disconnected(message: String) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	player.input_enabled = false
 	pause_menu.close()
+	intro.close()
 	toasts.push(message, Color("#ff6b6b"), 5.0)
 	await get_tree().create_timer(1.5).timeout
 	SceneManager.go("server_browser")

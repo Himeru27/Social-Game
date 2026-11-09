@@ -248,7 +248,7 @@ func _build_ui() -> void:
 	title_row.add_child(MenuStyle.title_word("Chat", ORANGE))
 
 	var sub := Label.new()
-	sub.text = "a relaxing low-poly social space"
+	sub.text = "Join the chill zone!"
 	sub.position = Vector2(6, 118)
 	MenuStyle.outlined(sub, 20, PAPER, 8)
 	logo.add_child(sub)
@@ -276,7 +276,7 @@ func _build_ui() -> void:
 	col.add_child(spacer)
 
 	var ver := Label.new()
-	ver.text = "v%s  -  Phase 7" % str(ProjectSettings.get_setting("application/config/version", "0.1.0"))
+	ver.text = "v%s" % str(ProjectSettings.get_setting("application/config/version", "0.1.0"))
 	MenuStyle.outlined(ver, 18, Color(1, 1, 1, 0.9), 5)
 	col.add_child(ver)
 

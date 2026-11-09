@@ -253,7 +253,7 @@ func _noise_burst(duration: float, cutoff: float, rng: RandomNumberGenerator) ->
 	for i in n:
 		var t := float(i) / rate
 		lp += a * (rng.randf_range(-1.0, 1.0) - lp)
-		out[i] = lp * exp(-t * 38.0) * 1.6
+		out[i] = lp * exp(-t * 38.0) * 2.6
 	return _wav(out, rate)
 
 

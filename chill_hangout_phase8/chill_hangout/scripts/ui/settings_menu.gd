@@ -10,14 +10,14 @@ var _refreshers: Array[Callable] = []
 
 
 func _ready() -> void:
-	theme = UITheme.get_theme()
+	theme = MenuStyle.get_theme()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build()
 
 
 func _build() -> void:
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.6)
+	dim.color = Color(0.04, 0.1, 0.16, 0.5)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 
@@ -25,12 +25,19 @@ func _build() -> void:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
+	# Same panel as CREATE SERVER: dark ink, orange bar on top.
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(780, 540)
+	var vs := get_viewport_rect().size
+	panel.custom_minimum_size = Vector2(minf(820.0, vs.x - 60.0), minf(560.0, vs.y - 60.0))
+	var sb := MenuStyle.flat(Color(MenuStyle.INK, 0.97), MenuStyle.ORANGE, 0, 0)
+	sb.border_width_top = 8
+	sb.shadow_color = Color(0, 0, 0, 0.45)
+	sb.shadow_size = 18
+	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 22)
+		margin.add_theme_constant_override("margin_" + side, 26)
 	panel.add_child(margin)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 14)
@@ -38,8 +45,8 @@ func _build() -> void:
 
 	var title := Label.new()
 	title.text = "SETTINGS"
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", UITheme.ACCENT)
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", MenuStyle.ORANGE)
 	v.add_child(title)
 
 	var tabs := TabContainer.new()
@@ -71,6 +78,7 @@ func _build() -> void:
 	var pause_btn := Button.new()
 	pause_btn.text = "Esc"
 	pause_btn.disabled = true
+	pause_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_btn.custom_minimum_size.x = 150
 	pause_row.add_child(pause_btn)
 
@@ -78,12 +86,13 @@ func _build() -> void:
 	bottom.add_theme_constant_override("separation", 12)
 	v.add_child(bottom)
 	var reset := _button("RESET TO DEFAULTS", _on_reset)
+	reset.custom_minimum_size.x = 300
 	bottom.add_child(reset)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bottom.add_child(spacer)
 	var back := _button("BACK", close)
-	back.custom_minimum_size.x = 160
+	back.custom_minimum_size.x = 200
 	bottom.add_child(back)
 
 
@@ -92,28 +101,42 @@ func _tab(tabs: TabContainer, tab_name: String) -> VBoxContainer:
 	scroll.name = tab_name
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	tabs.add_child(scroll)
+	# Side margins leave room for the slant of the row strips.
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 8)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 4)
+	pad.add_theme_constant_override("margin_bottom", 4)
+	scroll.add_child(pad)
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 14)
-	scroll.add_child(box)
+	box.add_theme_constant_override("separation", 10)
+	pad.add_child(box)
 	return box
 
 
+## Each setting sits in a slanted dark strip, like the rows in the server browser.
 func _row(parent: Control, text: String) -> HBoxContainer:
+	var strip := PanelContainer.new()
+	strip.add_theme_stylebox_override("panel", MenuStyle.strip(MenuStyle.ROW_FILL, Color(1, 1, 1, 0.4), 1, Vector4(34, 26, 8, 8)))
+	parent.add_child(strip)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
+	strip.add_child(h)
 	var l := Label.new()
 	l.text = text
-	l.custom_minimum_size.x = 240
+	l.custom_minimum_size.x = 230
 	h.add_child(l)
-	parent.add_child(h)
 	return h
 
 
 func _button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 48)
+	b.custom_minimum_size = Vector2(0, 52)
+	MenuStyle.style_button(b, 26)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()
 		cb.call())
@@ -179,6 +202,7 @@ func _add_key_row(parent: Control, action: String, label: String) -> void:
 	var h := _row(parent, label)
 	var b := Button.new()
 	b.custom_minimum_size.x = 150
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.text = GameSettings.key_label(action)
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()

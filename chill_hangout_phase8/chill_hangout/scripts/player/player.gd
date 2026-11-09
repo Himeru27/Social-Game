@@ -79,7 +79,9 @@ func _ready() -> void:
 	_shape.position.y = STAND_H / 2.0
 	add_child(_shape)
 	set_appearance(initial_appearance if not initial_appearance.is_empty() else CharacterModel.preset(appearance_preset))
-	_step_player = _make_audio3d(-9.0)
+	_step_player = _make_audio3d(-3.0)
+	_step_player.max_db = 6.0
+	_step_player.unit_size = 6.0
 	_fx_player = _make_audio3d(-4.0)
 	name_tag = NameTag.new()
 	add_child(name_tag)
@@ -114,7 +116,7 @@ func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool) -> v
 		return
 	model.step_pending = false
 	_step_player.stream = AudioManager.get_footstep()
-	_step_player.volume_db = -10.0 if crouch else (-1.0 if speed > 4.5 else -5.0)
+	_step_player.volume_db = -4.0 if crouch else (5.0 if speed > 4.5 else 2.0)
 	_step_player.pitch_scale = randf_range(0.97, 1.03)
 	_step_player.play()
 

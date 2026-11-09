@@ -108,3 +108,8 @@ Protocol version is now 2 - update the server and every client together.
   emote audio from `assets/audio/emotes/` (loops fade out when the emote ends); sit sound also plays for remote players. Master/Music/SFX sliders control the buses.
 - **Connection status**: the HUD shows `PING n ms` under the hint line, red when above 250 ms or when the server stops answering.
 - `deploy/` has a Dockerfile and systemd unit; see `DEPLOYMENT.md` (internet hosting is NOT yet tested) and `TESTING.md` for the full test plan.
+
+## Phase 8 UI polish
+- The controls hint line at the top of the screen is gone. Instead, the first time you ever join a server a "HOW TO PLAY" card pops up (scripts/ui/intro_popup.gd). Close it with GOT IT!, Esc or Enter. It is remembered in `user://flags.cfg` (delete that file to see it again).
+- Pause menu, Settings, the room info panel (top right) and the player list (hold Tab) now share the server browser look: Anton font, slanted dark strips, white + orange. The shared Settings theme lives in `MenuStyle.get_theme()`.
+- Main menu: tagline is now "Join the chill zone!" and the version label no longer shows the phase.

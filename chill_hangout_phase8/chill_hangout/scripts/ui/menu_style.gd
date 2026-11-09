@@ -108,3 +108,85 @@ static func title_word(text: String, color: Color, size: int = 92) -> Label:
 	l.add_theme_constant_override("shadow_outline_size", int(size * 0.17))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+const ROW_FILL := Color("#16293a")      # settings / list rows (a touch lighter than INK)
+
+static var _theme: Theme
+
+
+## Theme for the settings screen: Anton text, slanted strips, orange accents. No red.
+static func get_theme() -> Theme:
+	if _theme == null:
+		_theme = _build_theme()
+	return _theme
+
+
+static func _build_theme() -> Theme:
+	var t := Theme.new()
+	t.default_font = FONT
+	t.default_font_size = 20
+	t.set_color("font_color", "Label", WHITE)
+
+	# Buttons: same slanted strips as the main menu.
+	var bm := Vector4(26, 16, 4, 4)
+	t.set_stylebox("normal", "Button", strip(Color(INK, 0.92), WHITE, 2, bm))
+	t.set_stylebox("hover", "Button", strip(ORANGE, WHITE, 2, bm))
+	t.set_stylebox("pressed", "Button", strip(ORANGE_DEEP, WHITE, 2, bm))
+	t.set_stylebox("focus", "Button", strip(Color(0, 0, 0, 0), ORANGE, 3, bm))
+	t.set_stylebox("disabled", "Button", strip(Color(INK, 0.55), Color(1, 1, 1, 0.35), 2, bm))
+	t.set_color("font_color", "Button", WHITE)
+	t.set_color("font_hover_color", "Button", INK)
+	t.set_color("font_pressed_color", "Button", INK)
+	t.set_color("font_focus_color", "Button", WHITE)
+	t.set_color("font_disabled_color", "Button", Color(1, 1, 1, 0.4))
+
+	# Drop-downs: flat boxes like the server screen inputs.
+	t.set_stylebox("normal", "OptionButton", flat(Color(INK, 0.92), WHITE, 2, 10))
+	t.set_stylebox("hover", "OptionButton", flat(ORANGE, WHITE, 2, 10))
+	t.set_stylebox("pressed", "OptionButton", flat(ORANGE_DEEP, WHITE, 2, 10))
+	t.set_stylebox("focus", "OptionButton", flat(Color(0, 0, 0, 0), ORANGE, 3, 10))
+	t.set_stylebox("disabled", "OptionButton", flat(Color(INK, 0.55), Color(1, 1, 1, 0.35), 2, 10))
+	t.set_color("font_color", "OptionButton", WHITE)
+	t.set_color("font_hover_color", "OptionButton", INK)
+	t.set_color("font_pressed_color", "OptionButton", INK)
+	t.set_color("font_focus_color", "OptionButton", WHITE)
+	t.set_stylebox("panel", "PopupMenu", flat(INK, WHITE, 2, 6))
+	t.set_stylebox("hover", "PopupMenu", flat(ORANGE, ORANGE, 0, 4))
+	t.set_color("font_color", "PopupMenu", WHITE)
+	t.set_color("font_hover_color", "PopupMenu", INK)
+
+	# Toggle: no box, just the switch, with a soft orange glow on hover.
+	var clear := flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 6)
+	var glow := flat(Color(ORANGE, 0.25), Color(0, 0, 0, 0), 0, 6)
+	for state in ["normal", "pressed", "disabled"]:
+		t.set_stylebox(state, "CheckButton", clear)
+	t.set_stylebox("hover", "CheckButton", glow)
+	t.set_stylebox("hover_pressed", "CheckButton", glow)
+	t.set_stylebox("focus", "CheckButton", StyleBoxEmpty.new())
+
+	# Sliders: dark track, orange fill.
+	var track := flat(Color(INK, 0.95), Color(1, 1, 1, 0.55), 1, 5)
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", flat(ORANGE, ORANGE, 0, 5))
+	t.set_stylebox("grabber_area_highlight", "HSlider", flat(ORANGE.lightened(0.2), ORANGE, 0, 5))
+
+	# Tabs: slanted strips, the selected one is orange.
+	var tm := Vector4(30, 22, 6, 6)
+	t.set_stylebox("tab_selected", "TabContainer", strip(ORANGE, ORANGE, 0, tm))
+	t.set_stylebox("tab_unselected", "TabContainer", strip(Color(INK, 0.92), Color(1, 1, 1, 0.55), 1, tm))
+	t.set_stylebox("tab_hovered", "TabContainer", strip(ORANGE_DEEP, ORANGE_DEEP, 0, tm))
+	t.set_stylebox("tab_focus", "TabContainer", StyleBoxEmpty.new())
+	t.set_stylebox("panel", "TabContainer", flat(Color(0.03, 0.07, 0.1, 0.55), Color(1, 1, 1, 0.25), 1, 14))
+	t.set_color("font_selected_color", "TabContainer", INK)
+	t.set_color("font_unselected_color", "TabContainer", WHITE)
+	t.set_color("font_hovered_color", "TabContainer", INK)
+	t.set_font_size("font_size", "TabContainer", 22)
+	t.set_constant("h_separation", "TabContainer", 10)
+
+	# Scroll bar.
+	t.set_stylebox("scroll", "VScrollBar", flat(Color(1, 1, 1, 0.08), Color(0, 0, 0, 0), 0, 3))
+	t.set_stylebox("grabber", "VScrollBar", flat(ORANGE, ORANGE, 0, 3))
+	t.set_stylebox("grabber_highlight", "VScrollBar", flat(ORANGE.lightened(0.2), ORANGE, 0, 3))
+	t.set_stylebox("grabber_pressed", "VScrollBar", flat(ORANGE_DEEP, ORANGE_DEEP, 0, 3))
+	return t

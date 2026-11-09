@@ -148,3 +148,22 @@ func _apply_video() -> void:
 	var shadow_sizes: Array[int] = [1024, 2048, 4096]
 	get_viewport().msaa_3d = msaa[q]
 	RenderingServer.directional_shadow_atlas_set_size(shadow_sizes[q], true)
+
+
+# ---------------------------------------------------------------- one-time flags
+
+const FLAGS_PATH := "user://flags.cfg"
+
+
+## True if a one-time hint/popup (e.g. the first-join controls card) was already shown.
+## Kept in its own file so "Reset to defaults" in Settings does not bring it back.
+func has_seen(flag: String) -> bool:
+	var cfg := ConfigFile.new()
+	return cfg.load(FLAGS_PATH) == OK and bool(cfg.get_value("seen", flag, false))
+
+
+func mark_seen(flag: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(FLAGS_PATH)
+	cfg.set_value("seen", flag, true)
+	cfg.save(FLAGS_PATH)
