@@ -39,11 +39,18 @@ const EMOTE_HI := 3
 const EMOTE_AURA := 4
 const EMOTES: Array[Dictionary] = [
 	{"id": 0, "name": "BRAZILIAN TIKTOK DANCE", "loop": true, "dur": 0.0},
-	{"id": 1, "name": "SIPPING A COFFEE", "loop": false, "dur": 7.0},
+	{"id": 1, "name": "SIPPING A COFFEE", "loop": false, "dur": 6.0},
 	{"id": 2, "name": "BABY'S STRANGER THINGS DANCE", "loop": true, "dur": 0.0},
 	{"id": 3, "name": "HI", "loop": false, "dur": 2.6},
 	{"id": 4, "name": "AURA FARM", "loop": true, "dur": 0.0},
 ]
+## Beat length (s) of the two dance emotes and when the first beat lands (s after the emote starts), measured from the
+## music files (Taka La Dentro from 0:08 = 89.80 bpm, Stranger Things dance = 84.76 bpm). The animation uses them so it
+## moves exactly on the beat of the audio.
+const EMOTE_BEAT_BRAZILIAN := 60.0 / 89.80
+const EMOTE_OFFSET_BRAZILIAN := 0.60
+const EMOTE_BEAT_STRANGER := 60.0 / 84.76
+const EMOTE_OFFSET_STRANGER := 0.16
 const EMOTE_COOLDOWN_MSEC := 300
 const EMOTE_CANCEL_SPEED_Q := 40      ## server cancels an emote if the player moves faster than 2 m/s
 

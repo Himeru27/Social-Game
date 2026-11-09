@@ -105,6 +105,6 @@ Protocol version is now 2 - update the server and every client together.
 - **Audio** (all generated in code, so no asset files are required; real `.ogg` files override them):
   menu music (`assets/audio/music/menu_theme.ogg`) and lobby music (`lobby_theme.ogg`) fall back to built-in ambient pads;
   faint looping room tone in rooms; positional footsteps for every player (quieter crouching, louder sprinting);
-  emote sound (hi); sit sound also plays for remote players. Master/Music/SFX sliders control the buses.
+  emote audio from `assets/audio/emotes/` (loops fade out when the emote ends); sit sound also plays for remote players. Master/Music/SFX sliders control the buses.
 - **Connection status**: the HUD shows `PING n ms` under the hint line, red when above 250 ms or when the server stops answering.
 - `deploy/` has a Dockerfile and systemd unit; see `DEPLOYMENT.md` (internet hosting is NOT yet tested) and `TESTING.md` for the full test plan.

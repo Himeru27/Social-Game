@@ -42,7 +42,6 @@ func _ready() -> void:
 	rng.seed = 7
 	for i in 3:
 		_steps.append(_noise_burst(0.11, 900.0 + i * 220.0, rng))
-	_emote_sfx[NetProtocol.EMOTE_HI] = _sweep(500.0, 900.0, 0.35)       # hi: soft whoosh-chirp
 	var custom_step := _find_audio("res://assets/audio/sfx/footstep")
 	if custom_step != "":
 		_steps.clear()
@@ -147,9 +146,35 @@ func get_sit_sound() -> AudioStreamWAV:
 	return _sit
 
 
-## Returns null for emotes without a sound (the looping dance has none).
-func get_emote_sound(id: int) -> AudioStreamWAV:
-	return _emote_sfx.get(id)
+## Emote audio from assets/audio/emotes/: [file name, loops while the emote lasts, loop restart point in seconds].
+## The looping files are prepared so the end crossfades into the restart point; Player fades them out when the emote ends.
+const EMOTE_AUDIO := {
+	NetProtocol.EMOTE_BRAZILIAN: ["brazilian_taka_la_dentro", true, 1.5],
+	NetProtocol.EMOTE_COFFEE: ["coffee", false, 0.0],
+	NetProtocol.EMOTE_STRANGER: ["stranger_things_dance", true, 0.75],
+	NetProtocol.EMOTE_HI: ["hi", false, 0.0],
+	NetProtocol.EMOTE_AURA: ["aura_farm", true, 0.75],
+}
+
+
+func get_emote_sound(id: int) -> AudioStream:
+	if not _emote_sfx.has(id):
+		_emote_sfx[id] = _load_emote_sound(id)
+	return _emote_sfx[id]
+
+
+func _load_emote_sound(id: int) -> AudioStream:
+	if not EMOTE_AUDIO.has(id):
+		return null
+	var e: Array = EMOTE_AUDIO[id]
+	var path := _find_audio("res://assets/audio/emotes/" + str(e[0]))
+	if path == "":
+		return null
+	var stream: AudioStream = load(path)
+	if bool(e[1]) and "loop" in stream:
+		stream.loop = true
+		stream.loop_offset = float(e[2])
+	return stream
 
 
 func start_ambient() -> void:

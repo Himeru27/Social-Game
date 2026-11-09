@@ -399,6 +399,10 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false)
 	var elbow := 0.12 + _run * 0.9 * swing + 0.9 * _sit
 	_elb_l.rotation.x = elbow
 	_elb_r.rotation.x = elbow
+	body.rotation.y = 0.0          # emotes may twist/tilt these; reset so nothing stays stuck after an emote
+	body.rotation.z = 0.0
+	_elb_l.rotation.z = 0.0
+	_elb_r.rotation.z = 0.0
 	_apply_emote(delta)
 
 
@@ -418,33 +422,44 @@ func _apply_emote(delta: float) -> void:
 	var p := {}
 	match _pose:
 		NetProtocol.EMOTE_BRAZILIAN:
-			# Funk-style: fast bounce, hips swaying side to side, arms pumping, knees alternating.
-			var s := sin(t * 8.0)
-			var sway := sin(t * 4.0)
-			p = {"body_y": absf(s) * 0.05, "body_z": sway * 0.16, "body_x": 0.08,
-				"shl_x": 0.9 + 0.5 * s, "shr_x": 0.9 - 0.5 * s, "shl_z": 0.35, "shr_z": -0.35,
-				"ell_x": 1.4, "elr_x": 1.4,
-				"hipl_x": maxf(0.0, sway) * 0.55, "hipr_x": maxf(0.0, -sway) * 0.55,
-				"kneel_x": -maxf(0.0, sway) * 0.6, "kneer_x": -maxf(0.0, -sway) * 0.6}
-		NetProtocol.EMOTE_COFFEE:
-			var r := maxf(_sip(t, 1.2, 1.8, 2.8, 3.4), _sip(t, 4.0, 4.6, 5.6, 6.2))
-			p = {"shr_x": lerpf(0.55, 1.0, r), "shr_z": lerpf(-0.25, -0.5, r), "elr_x": lerpf(1.5, 2.15, r),
-				"body_x": -0.07 * r, "body_z": sin(t * 1.4) * 0.015}
-		NetProtocol.EMOTE_STRANGER:
-			# 80s step-touch: alternating kicks, snapping arms at chest height, little head-bob.
-			var s := sin(t * 3.6)
-			p = {"body_y": absf(s) * 0.03, "body_z": s * 0.1, "body_x": 0.06 * sin(t * 7.2),
-				"shl_x": 0.8 + 0.25 * s, "shr_x": 0.8 - 0.25 * s, "shl_z": 0.3, "shr_z": -0.3,
+			# Funk "passinho": deep bounce on every half-beat, hips and torso swinging side to side every 2 beats,
+			# fists pumping in opposition, the free knee kicking up. Feet stay planted (hips/knees solved together).
+			var b := (t - NetProtocol.EMOTE_OFFSET_BRAZILIAN) * TAU / NetProtocol.EMOTE_BEAT_BRAZILIAN
+			var sq := 0.5 + 0.2 * cos(b * 2.0)               # squat depth: lowest on every beat and half-beat
+			var sw := sin(b * 0.5)
+			var bx := -0.2
+			p = {"body_x": bx, "body_y": -(_thigh + _shin) * (1.0 - cos(sq)), "body_ry": sw * 0.45, "body_z": sw * 0.14,
+				"shl_x": 0.9 + 0.7 * sw, "shr_x": 0.9 - 0.7 * sw, "shl_z": 0.3, "shr_z": -0.3,
 				"ell_x": 1.7, "elr_x": 1.7,
+				"hipl_x": sq - bx + maxf(0.0, sw) * 0.4, "hipr_x": sq - bx + maxf(0.0, -sw) * 0.4,
+				"kneel_x": -2.0 * sq - maxf(0.0, sw) * 0.5, "kneer_x": -2.0 * sq - maxf(0.0, -sw) * 0.5}
+		NetProtocol.EMOTE_COFFEE:
+			# Left arm tucked at the waist, right hand brings the mug up, head tips back for the sip.
+			var r := _coffee_lift(t)
+			p = {"shr_x": lerpf(0.7, 1.3, r), "shr_z": lerpf(-0.35, -0.55, r), "elr_x": lerpf(1.7, 2.4, r),
+				"shl_x": 0.45, "shl_z": 0.3, "ell_x": 1.4,
+				"body_x": 0.07 * r, "body_z": sin(t * 1.4) * 0.015}
+		NetProtocol.EMOTE_STRANGER:
+			# 80s step-touch on the beat: weight shifts side to side, alternate foot taps, snapping arms,
+			# and every 4 beats the right arm shoots up in a disco point.
+			var beat := NetProtocol.EMOTE_BEAT_STRANGER
+			var bt := t - NetProtocol.EMOTE_OFFSET_STRANGER
+			var s := cos(bt * TAU / (2.0 * beat))
+			var up := _sip(fposmod(bt / (4.0 * beat), 1.0), 0.5, 0.6, 0.75, 0.85)
+			p = {"body_y": -absf(s) * 0.025, "body_z": s * 0.1, "body_ry": s * 0.25, "body_x": 0.05 * cos(bt * TAU / beat),
+				"shl_x": 0.8 + 0.3 * s, "shl_z": 0.3, "ell_x": 1.7,
+				"shr_x": lerpf(0.8 - 0.3 * s, 0.0, up), "shr_z": lerpf(-0.3, 2.4, up), "elr_x": lerpf(1.7, 0.3, up),
 				"hipl_x": maxf(0.0, s) * 0.5, "hipr_x": maxf(0.0, -s) * 0.5,
 				"kneel_x": -maxf(0.0, s) * 0.3, "kneer_x": -maxf(0.0, -s) * 0.3}
 		NetProtocol.EMOTE_HI:
-			p = {"shr_z": 2.75, "shr_x": 0.0, "elr_z": sin(t * 9.0) * 0.55, "elr_x": 0.15}
+			p = {"shr_z": 2.6 + 0.1 * sin(t * 4.5), "shr_x": 0.15, "elr_z": sin(t * 9.0) * 0.6, "elr_x": 0.2,
+				"body_z": sin(t * 4.5) * 0.03}
 		NetProtocol.EMOTE_AURA:
-			# Leaning back against a wall: arms crossed, ankles crossed, feet a little out front.
+			# Back and shoulders on the wall, arms crossed, ankles crossed, slow breathing, tiny foot tap.
 			p = {"body_x": 0.28 + sin(t * 1.3) * 0.01, "body_z": 0.0,
 				"shl_x": 0.8, "shl_z": 0.5, "ell_x": 2.0, "shr_x": 0.8, "shr_z": -0.5, "elr_x": 2.0,
-				"hipl_x": -0.16, "hipr_x": -0.05, "kneel_x": 0.0, "kneer_x": -0.5}
+				"hipl_x": -0.16, "hipr_x": -0.05, "kneel_x": 0.0,
+				"kneer_x": -0.5 + maxf(0.0, sin(t * TAU / 2.0)) * 0.06}
 	_mix(_sh_l, "x", p, "shl_x", w)
 	_mix(_sh_l, "z", p, "shl_z", w)
 	_mix(_sh_r, "x", p, "shr_x", w)
@@ -454,6 +469,7 @@ func _apply_emote(delta: float) -> void:
 	_mix(_elb_r, "z", p, "elr_z", w)
 	_mix(body, "x", p, "body_x", w)
 	_mix(body, "z", p, "body_z", w)
+	_mix(body, "y", p, "body_ry", w)
 	_mix(_hip_l, "x", p, "hipl_x", w)
 	_mix(_hip_r, "x", p, "hipr_x", w)
 	_mix(_knee_l, "x", p, "kneel_x", w)
@@ -462,8 +478,14 @@ func _apply_emote(delta: float) -> void:
 		body.position.y += float(p["body_y"]) * w
 	if _cup != null and is_instance_valid(_cup) and _pose == NetProtocol.EMOTE_COFFEE:
 		# Keep the mug upright in world space whatever the arm does; tilt it toward the mouth while sipping.
-		var r2 := maxf(_sip(t, 1.2, 1.8, 2.8, 3.4), _sip(t, 4.0, 4.6, 5.6, 6.2))
-		_cup.rotation.x = -(_sh_r.rotation.x + _elb_r.rotation.x + body.rotation.x) - 0.6 * r2
+		var r2 := _coffee_lift(t)
+		_cup.rotation.x = -(_sh_r.rotation.x + _elb_r.rotation.x + body.rotation.x) - 0.8 * r2
+
+
+## How far the mug is raised (0 = held at the chest, 1 = at the mouth). Timed to the audio: a small lift at ~1 s,
+## then the sip while the slurp plays (4.2 - 5.15 s) and the mug comes back down.
+func _coffee_lift(t: float) -> float:
+	return maxf(0.3 * _sip(t, 0.8, 1.0, 1.3, 1.5), _sip(t, 3.3, 4.0, 5.1, 5.6))
 
 
 ## 0 -> 1 between a and b, holds until c, back to 0 at d (used for the sips).
@@ -559,9 +581,10 @@ static func _pixel_text_texture(text: String) -> ImageTexture:
 func _mix(n: Node3D, axis: String, p: Dictionary, key: String, w: float) -> void:
 	if not p.has(key):
 		return
-	var cur: float = n.rotation.x if axis == "x" else n.rotation.z
-	var v := lerpf(cur, float(p[key]), w)
-	if axis == "x":
-		n.rotation.x = v
-	else:
-		n.rotation.z = v
+	match axis:
+		"x":
+			n.rotation.x = lerpf(n.rotation.x, float(p[key]), w)
+		"y":
+			n.rotation.y = lerpf(n.rotation.y, float(p[key]), w)
+		_:
+			n.rotation.z = lerpf(n.rotation.z, float(p[key]), w)

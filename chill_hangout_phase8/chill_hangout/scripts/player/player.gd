@@ -65,6 +65,7 @@ var _seat_tween: Tween
 var _step_player: AudioStreamPlayer3D
 var _fx_player: AudioStreamPlayer3D
 var _lean_tween: Tween
+var _fx_tween: Tween
 
 
 func _ready() -> void:
@@ -121,8 +122,22 @@ func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool) -> v
 func _play_fx(stream: AudioStream) -> void:
 	if stream == null or _fx_player == null:
 		return
+	if _fx_tween:
+		_fx_tween.kill()
+	_fx_player.volume_db = -4.0
 	_fx_player.stream = stream
 	_fx_player.play()
+
+
+## Fades the emote sound out instead of cutting it (used when an emote ends early).
+func _fade_out_fx(secs: float) -> void:
+	if _fx_player == null or not _fx_player.playing:
+		return
+	if _fx_tween:
+		_fx_tween.kill()
+	_fx_tween = create_tween()
+	_fx_tween.tween_property(_fx_player, "volume_db", -60.0, secs)
+	_fx_tween.tween_callback(_fx_player.stop)
 
 
 func model_height_scale() -> float:
@@ -186,6 +201,7 @@ func cancel_emote() -> void:
 	if emote == -1:
 		return
 	emote = -1
+	_fade_out_fx(0.6)              # the emote music fades away with the emote
 	if _lean_tween:
 		_lean_tween.kill()
 	model.stop_emote()
