@@ -1,5 +1,7 @@
+class_name MainMenu
 extends Node3D
-## Main menu: procedural low-poly diorama (the player's character surrounded by trees) + UI.
+## Main menu: bright low-poly diorama (the player's character, trees, grass, rocks, clouds) + UI.
+## PLAY orbits the camera behind the character and opens the server browser in the same scene.
 ## Everything is built in code, so the scene file only needs this script on a root Node3D.
 
 const SETTINGS_SCENE: PackedScene = preload("res://scenes/ui/settings_menu.tscn")
@@ -7,23 +9,34 @@ const MENU_MUSIC := "res://assets/audio/music/menu_theme.ogg"
 ## Display font for the main menu and About screen (Anton, SIL Open Font License - see assets/fonts/OFL.txt).
 const MENU_FONT: Font = preload("res://assets/fonts/Anton-Regular.ttf")
 
-const RED := Color("#e60012")
-const INK := Color("#0b0b10")
-const PAPER := Color("#f6f3ec")
-const SLANT := 0.28
+const ORANGE := MenuStyle.ORANGE
+const INK := MenuStyle.INK
+const PAPER := MenuStyle.WHITE
+const SLANT := MenuStyle.SLANT
 
 ## Low camera looking up at the character (relative to the pivot), with a slight tilt.
 const CAM_POS := Vector3(0.0, -0.95, 2.3)
 const CAM_PITCH := 20.0
 const CAM_ROLL := -5.0
 
+## Set by SceneManager when you leave a room: the menu then opens straight on the server screen.
+static var start_in_servers := false
+
 var _pivot: Node3D
 var _camera: Camera3D
+var _backdrop: MenuBackdrop
 var _trees: Array[Node3D] = []
 var _hero: CharacterModel
 var _wave := 0.06
 var _t := 0.0
 var _ui: CanvasLayer
+var _ui_root: Control
+var _menu_col: Control
+var _buttons: Array[Button] = []
+var _browser: ServerBrowser
+var _orbit := 0.0              # 0 = in front of the character, PI = behind him
+var _server_mode := false
+var _transitioning := false
 
 
 func _ready() -> void:
@@ -33,81 +46,59 @@ func _ready() -> void:
 	_build_camera()
 	_build_ui()
 	AudioManager.play_music(MENU_MUSIC, "menu")
+	if start_in_servers:
+		start_in_servers = false
+		_enter_servers(true)
 
 
 func _process(delta: float) -> void:
 	_t += delta
-	_pivot.rotation.y = sin(_t * 0.12) * 0.55
+	var sway := lerpf(0.55, 0.22, _orbit / PI)
+	_pivot.rotation.y = _orbit + sin(_t * 0.12) * sway
+	_backdrop.sun_rig.rotation.y = _orbit
 	_camera.position.y = CAM_POS.y + sin(_t * 0.3) * 0.05
 	for tr in _trees:
 		tr.rotation.z = sin(_t * 0.8 + float(tr.get_meta("phase"))) * 0.025
 	_animate_hero(delta)
 
 
+func get_browser() -> ServerBrowser:
+	return _browser
+
+
 # ---------------------------------------------------------------- 3D world
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color("#06060a")
-	sky_mat.sky_horizon_color = Color("#7a0c17")
-	sky_mat.sky_curve = 0.25
-	sky_mat.ground_horizon_color = Color("#7a0c17")
-	sky_mat.ground_bottom_color = Color("#050507")
-	sky_mat.ground_curve = 0.05
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#7a6f80")
-	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = true
-	env.fog_light_color = Color("#2a060b")
-	env.fog_density = 0.05
-	env.fog_sky_affect = 0.0
-	var we := WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
-
-	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-30, -30, 0)
-	key.light_color = Color("#fff3ec")
-	key.light_energy = 0.55
-	key.shadow_enabled = true
-	add_child(key)
-
-	# Red rim light behind the character.
-	var rim := OmniLight3D.new()
-	rim.position = Vector3(0.0, 2.0, -2.4)
-	rim.light_color = RED
-	rim.light_energy = 2.2
-	rim.omni_range = 7.0
-	add_child(rim)
+	_backdrop = MenuBackdrop.new()
+	add_child(_backdrop)
 
 
 func _build_scenery() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 
-	# Trees all around the character; nothing between the camera and the character.
-	var count := 28
-	for i in count:
-		var ang := float(i) / float(count) * TAU + rng.randf_range(-0.12, 0.12)
-		var dist := rng.randf_range(3.0, 8.0)
-		var pos := Vector3(cos(ang) * dist, 0.0, sin(ang) * dist)
-		if pos.z > 1.0:
-			continue
-		_make_tree(pos, rng.randf_range(0.9, 1.4), rng)
+	# Ring of trees around the character, outside the camera's orbit.
+	var near := 28
+	for i in near:
+		var ang := float(i) / float(near) * TAU + rng.randf_range(-0.12, 0.12)
+		var dist := rng.randf_range(5.0, 9.0)
+		_make_tree(Vector3(cos(ang) * dist, 0.0, sin(ang) * dist), rng.randf_range(0.9, 1.4), rng)
+
+	# Scattered trees farther out, planted on the hills.
+	for i in 26:
+		var ang := rng.randf() * TAU
+		var dist := rng.randf_range(11.0, 45.0)
+		var x := cos(ang) * dist
+		var z := sin(ang) * dist
+		_make_tree(Vector3(x, _backdrop.height_at(x, z), z), rng.randf_range(1.0, 1.8), rng)
 
 
 func _make_tree(pos: Vector3, scale_f: float, rng: RandomNumberGenerator) -> void:
 	var tree := Node3D.new()
 	tree.position = pos
 	tree.scale = Vector3.ONE * scale_f
-	LowPoly.cylinder(tree, 0.18, 0.24, 1.2, 6, Color("#7a5a3a"), Vector3(0, 0.6, 0))
-	var green := Color("#4f9d69").lerp(Color("#7fc47a"), rng.randf())
+	LowPoly.cylinder(tree, 0.18, 0.24, 1.2, 6, Color("#8a6440"), Vector3(0, 0.6, 0))
+	var green := Color("#58b46a").lerp(Color("#8fd47a"), rng.randf())
 	LowPoly.cylinder(tree, 0.0, 1.2, 1.8, 6, green, Vector3(0, 2.0, 0))
 	LowPoly.cylinder(tree, 0.0, 0.9, 1.5, 6, green.lightened(0.08), Vector3(0, 3.0, 0))
 	tree.set_meta("phase", rng.randf() * TAU)
@@ -125,7 +116,7 @@ func _build_characters() -> void:
 	tag.font_size = 48
 	tag.pixel_size = 0.005
 	tag.outline_size = 12
-	tag.position = Vector3(0, 2.05 * float(PlayerProfile.appearance["height"]), 0)
+	tag.position = Vector3(0, 2.25 * float(PlayerProfile.appearance["height"]), 0)
 	add_child(tag)
 
 
@@ -145,10 +136,75 @@ func _build_camera() -> void:
 func _animate_hero(delta: float) -> void:
 	_hero.animate(delta, 0.0, false)
 	var target := 0.06
-	if fmod(_t, 7.0) < 3.0:
+	# Waves hello on the title screen; arm stays down on the server screen (he is facing away).
+	if not _server_mode and fmod(_t, 7.0) < 3.0:
 		target = PI * 0.82 + sin(_t * 9.0) * 0.25
 	_wave = lerpf(_wave, target, 1.0 - exp(-8.0 * delta))
 	_hero.get_right_shoulder().rotation.z = _wave
+
+
+# ---------------------------------------------------------------- PLAY -> server screen
+
+func _on_play_pressed() -> void:
+	if _transitioning or _server_mode:
+		return
+	_enter_servers(false)
+
+
+func _set_menu_clickable(on: bool) -> void:
+	for b in _buttons:
+		b.mouse_filter = Control.MOUSE_FILTER_STOP if on else Control.MOUSE_FILTER_IGNORE
+
+
+func _enter_servers(instant: bool) -> void:
+	_transitioning = true
+	_server_mode = true
+	_set_menu_clickable(false)
+	if instant:
+		_orbit = PI
+		_menu_col.visible = false
+		_open_browser(false)
+		_transitioning = false
+		return
+	var fade := create_tween()
+	fade.tween_property(_menu_col, "modulate:a", 0.0, 0.3)
+	var orbit := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	orbit.tween_property(self, "_orbit", PI, 1.3)
+	await orbit.finished
+	_menu_col.visible = false
+	_open_browser(true)
+	_transitioning = false
+
+
+func _open_browser(animate: bool) -> void:
+	_browser = ServerBrowser.new()
+	_browser.back_requested.connect(_leave_servers)
+	_ui_root.add_child(_browser)
+	_browser.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if animate:
+		_browser.modulate.a = 0.0
+		create_tween().tween_property(_browser, "modulate:a", 1.0, 0.35)
+
+
+func _leave_servers() -> void:
+	if _transitioning or _browser == null:
+		return
+	_transitioning = true
+	var old := _browser
+	_browser = null
+	var out := create_tween()
+	out.tween_property(old, "modulate:a", 0.0, 0.2)
+	await out.finished
+	old.queue_free()
+	_server_mode = false
+	_menu_col.visible = true
+	_menu_col.modulate.a = 0.0
+	create_tween().tween_property(_menu_col, "modulate:a", 1.0, 0.3)
+	var orbit := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	orbit.tween_property(self, "_orbit", 0.0, 1.3)
+	await orbit.finished
+	_set_menu_clickable(true)
+	_transitioning = false
 
 
 # ---------------------------------------------------------------- UI
@@ -161,11 +217,7 @@ func _build_ui() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ui.add_child(root)
-
-	# Slanted black panel with a red and a white edge stripe behind the menu.
-	_add_slab(root, [Vector2(-40, -40), Vector2(640, -40), Vector2(500, 1500), Vector2(-40, 1500)], Color(INK.r, INK.g, INK.b, 0.82))
-	_add_slab(root, [Vector2(640, -40), Vector2(668, -40), Vector2(528, 1500), Vector2(500, 1500)], RED)
-	_add_slab(root, [Vector2(676, -40), Vector2(684, -40), Vector2(544, 1500), Vector2(536, 1500)], PAPER)
+	_ui_root = root
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -178,8 +230,9 @@ func _build_ui() -> void:
 	col.add_theme_constant_override("separation", 12)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(col)
+	_menu_col = col
 
-	# Logo block, tilted like a sticker.
+	# Logo block, tilted like a sticker: "Vibe n'" in white, "Chat" in orange.
 	var logo := Control.new()
 	logo.custom_minimum_size = Vector2(520, 150)
 	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -187,26 +240,17 @@ func _build_ui() -> void:
 	logo.rotation = deg_to_rad(-5.0)
 	col.add_child(logo)
 
-	var title := Label.new()
-	title.text = "Vibe n' Chat"
-	title.position = Vector2(0, 0)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 92)
-	title.add_theme_color_override("font_color", RED)
-	title.add_theme_color_override("font_outline_color", PAPER)
-	title.add_theme_constant_override("outline_size", 14)
-	title.add_theme_color_override("font_shadow_color", INK)
-	title.add_theme_constant_override("shadow_offset_x", 6)
-	title.add_theme_constant_override("shadow_offset_y", 6)
-	title.add_theme_constant_override("shadow_outline_size", 14)
-	logo.add_child(title)
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 20)
+	title_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	logo.add_child(title_row)
+	title_row.add_child(MenuStyle.title_word("Vibe n'", PAPER))
+	title_row.add_child(MenuStyle.title_word("Chat", ORANGE))
 
 	var sub := Label.new()
 	sub.text = "a relaxing low-poly social space"
 	sub.position = Vector2(6, 118)
-	sub.add_theme_color_override("font_color", PAPER)
-	sub.add_theme_color_override("font_outline_color", INK)
-	sub.add_theme_constant_override("outline_size", 6)
+	MenuStyle.outlined(sub, 20, PAPER, 8)
 	logo.add_child(sub)
 
 	var gap := Control.new()
@@ -214,18 +258,16 @@ func _build_ui() -> void:
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(gap)
 
-	var buttons: Array[Button] = []
-	buttons.append(_add_button(col, "PLAY", func() -> void: SceneManager.go("server_browser")))
-	buttons.append(_add_button(col, "CHARACTER CUSTOMIZATION", func() -> void: SceneManager.go("character_customization")))
-	buttons.append(_add_button(col, "SETTINGS", _open_settings))
-	buttons.append(_add_button(col, "ABOUT", _open_about))
-	buttons.append(_add_button(col, "QUIT GAME", func() -> void: get_tree().quit()))
+	_buttons.append(_add_button(col, "PLAY", _on_play_pressed))
+	_buttons.append(_add_button(col, "CHARACTER CUSTOMIZATION", func() -> void: SceneManager.go("character_customization")))
+	_buttons.append(_add_button(col, "SETTINGS", _open_settings))
+	_buttons.append(_add_button(col, "ABOUT", _open_about))
+	_buttons.append(_add_button(col, "QUIT GAME", func() -> void: get_tree().quit()))
 
-	for i in buttons.size():
-		var b := buttons[i]
+	for i in _buttons.size():
+		var b := _buttons[i]
 		b.modulate.a = 0.0
-		b.position.x -= 30
-		var tw := create_tween().set_parallel(true)
+		var tw := create_tween()
 		tw.tween_property(b, "modulate:a", 1.0, 0.4).set_delay(0.1 * i)
 
 	var spacer := Control.new()
@@ -235,30 +277,13 @@ func _build_ui() -> void:
 
 	var ver := Label.new()
 	ver.text = "v%s  -  Phase 7" % str(ProjectSettings.get_setting("application/config/version", "0.1.0"))
-	ver.add_theme_color_override("font_color", UITheme.MUTED)
+	MenuStyle.outlined(ver, 18, Color(1, 1, 1, 0.9), 5)
 	col.add_child(ver)
-
-
-func _add_slab(parent: Control, pts: Array, color: Color) -> void:
-	var poly := Polygon2D.new()
-	poly.polygon = PackedVector2Array(pts)
-	poly.color = color
-	parent.add_child(poly)
 
 
 ## Slanted strip used by the menu buttons.
 func _strip(fill: Color, border: Color, border_w: int = 0) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = fill
-	sb.skew = Vector2(SLANT, 0.0)
-	sb.set_corner_radius_all(0)
-	sb.set_border_width_all(border_w)
-	sb.border_color = border
-	sb.content_margin_left = 34
-	sb.content_margin_right = 20
-	sb.content_margin_top = 4
-	sb.content_margin_bottom = 4
-	return sb
+	return MenuStyle.strip(fill, border, border_w)
 
 
 func _add_button(parent: Control, text: String, cb: Callable) -> Button:
@@ -266,17 +291,7 @@ func _add_button(parent: Control, text: String, cb: Callable) -> Button:
 	b.text = text
 	b.custom_minimum_size = Vector2(400, 56)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.add_theme_font_override("font", MENU_FONT)
-	b.add_theme_font_size_override("font_size", 30)
-	b.add_theme_stylebox_override("normal", _strip(INK, PAPER, 2))
-	b.add_theme_stylebox_override("hover", _strip(RED, PAPER, 2))
-	b.add_theme_stylebox_override("pressed", _strip(PAPER, RED, 2))
-	b.add_theme_stylebox_override("focus", _strip(RED, PAPER, 2))
-	b.add_theme_color_override("font_color", PAPER)
-	b.add_theme_color_override("font_hover_color", Color.WHITE)
-	b.add_theme_color_override("font_focus_color", Color.WHITE)
-	b.add_theme_color_override("font_pressed_color", INK)
+	MenuStyle.style_button(b, 30)
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()
 		cb.call())
@@ -317,7 +332,7 @@ func _open_about() -> void:
 	sb.bg_color = INK
 	sb.set_corner_radius_all(0)
 	sb.border_width_top = 8
-	sb.border_color = RED
+	sb.border_color = ORANGE
 	sb.shadow_color = Color(0, 0, 0, 0.5)
 	sb.shadow_size = 18
 	panel.add_theme_stylebox_override("panel", sb)
@@ -351,7 +366,7 @@ func _open_about() -> void:
 	rule.custom_minimum_size = Vector2(0, 2)
 	box.add_child(rule)
 
-	box.add_child(_about_heading("DEVELOPMENT TEAM", 28, RED))
+	box.add_child(_about_heading("DEVELOPMENT TEAM", 28, ORANGE))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 28)
@@ -375,14 +390,7 @@ func _open_about() -> void:
 	var close := Button.new()
 	close.text = "CLOSE"
 	close.custom_minimum_size = Vector2(0, 52)
-	close.add_theme_font_override("font", MENU_FONT)
-	close.add_theme_font_size_override("font_size", 26)
-	close.add_theme_stylebox_override("normal", _strip(INK, PAPER, 2))
-	close.add_theme_stylebox_override("hover", _strip(RED, PAPER, 2))
-	close.add_theme_stylebox_override("pressed", _strip(PAPER, RED, 2))
-	close.add_theme_color_override("font_color", PAPER)
-	close.add_theme_color_override("font_hover_color", Color.WHITE)
-	close.add_theme_color_override("font_pressed_color", INK)
+	MenuStyle.style_button(close, 26)
 	close.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	close.mouse_entered.connect(AudioManager.play_hover)
 	close.pressed.connect(func() -> void:
@@ -414,7 +422,7 @@ func _accent_bar(width: float) -> Control:
 	var holder := Control.new()
 	holder.custom_minimum_size = Vector2(0, 6)
 	var bar := ColorRect.new()
-	bar.color = RED
+	bar.color = ORANGE
 	bar.size = Vector2(width, 6)
 	holder.add_child(bar)
 	return holder

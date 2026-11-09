@@ -1,13 +1,20 @@
+class_name ServerBrowser
 extends Control
 ## Server browser: lists public servers, creates public/private servers, joins by code.
 ## All rules (capacity, codes, names) are enforced by the dedicated server - this screen only asks.
 ## "Game service" is the dedicated server's address; invitation codes never involve IPs.
+## It is shown inside the main menu (MainMenu creates it when PLAY is pressed) and emits
+## back_requested when BACK is pressed.
+
+signal back_requested
+
+const COL_W := 600.0
+## Column widths: SERVER (0 = fills the rest), MAP, PLAYERS, STATUS, JOIN button.
+const COL_WIDTHS := [0, 100, 76, 90, 100]
 
 var _status: Label
 var _list: VBoxContainer
 var _count_label: Label
-var _host_edit: LineEdit
-var _port_edit: LineEdit
 var _code_edit: LineEdit
 var _toasts: ToastLayer
 var _quick_pending := false
@@ -38,7 +45,7 @@ func _ready() -> void:
 	Net.join_succeeded.connect(_on_join_succeeded)
 	Net.join_failed.connect(_on_join_failed)
 	if Net.pending_notice != "":
-		_toasts.push(Net.pending_notice, Color("#ff6b6b"), 5.0)
+		_toasts.push(Net.pending_notice, MenuStyle.WARN, 5.0)
 		Net.pending_notice = ""
 	match Net.state:
 		Net.State.ONLINE:
@@ -46,7 +53,7 @@ func _ready() -> void:
 		Net.State.OFFLINE:
 			_connect()
 		_:
-			_set_status("Connecting...", UITheme.MUTED)
+			_set_status("Connecting...", MenuStyle.WHITE)
 
 
 func _process(delta: float) -> void:
@@ -55,7 +62,7 @@ func _process(delta: float) -> void:
 		if _quick_timer > 8.0:
 			_quick_pending = false
 			_set_busy(false)
-			_toasts.push("Quick Play: the server did not answer. Try again.", Color("#ff6b6b"), 4.0)
+			_toasts.push("Quick Play: the server did not answer. Try again.", MenuStyle.WARN, 4.0)
 	if Net.state != Net.State.ONLINE or _busy:
 		return
 	_refresh_t += delta
@@ -67,97 +74,106 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------- layout
 
 func _build() -> void:
-	var bg := ColorRect.new()
-	bg.color = UITheme.BG
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1000, 600)
-	center.add_child(panel)
-	var m := MarginContainer.new()
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + side, 22)
-	panel.add_child(m)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
-	m.add_child(v)
+		margin.add_theme_constant_override("margin_" + side, 48)
+	add_child(margin)
 
-	var head := HBoxContainer.new()
-	v.add_child(head)
-	var title := Label.new()
-	title.text = "SERVER BROWSER"
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", UITheme.ACCENT)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(title)
-	_status = Label.new()
-	head.add_child(_status)
+	var col := VBoxContainer.new()
+	col.custom_minimum_size.x = COL_W
+	col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	col.add_theme_constant_override("separation", 10)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(col)
 
-	var conn := HBoxContainer.new()
-	conn.add_theme_constant_override("separation", 8)
-	v.add_child(conn)
-	var cl := Label.new()
-	cl.text = "Game service"
-	cl.add_theme_color_override("font_color", UITheme.MUTED)
-	conn.add_child(cl)
-	_host_edit = LineEdit.new()
-	_host_edit.text = Net.host
-	_host_edit.custom_minimum_size.x = 260
-	_host_edit.visible = false
-	cl.visible = false
-	conn.add_child(_host_edit)
-	_port_edit = LineEdit.new()
-	_port_edit.text = str(Net.port)
-	_port_edit.custom_minimum_size.x = 90
-	_port_edit.visible = false
-	conn.add_child(_port_edit)
-	var reconnect := _button(conn, "RECONNECT", _on_reconnect_pressed, false)
-	reconnect.custom_minimum_size.x = 150
-	_count_label = Label.new()
-	_count_label.add_theme_color_override("font_color", UITheme.MUTED)
+	# Title, same look as the main menu logo.
+	var logo := HBoxContainer.new()
+	logo.add_theme_constant_override("separation", 16)
+	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	logo.add_child(MenuStyle.title_word("SERVER", MenuStyle.WHITE, 64))
+	logo.add_child(MenuStyle.title_word("BROWSER", MenuStyle.ORANGE, 64))
+	col.add_child(logo)
+
+	# Status line + reconnect.
+	var info := HBoxContainer.new()
+	info.add_theme_constant_override("separation", 12)
+	col.add_child(info)
+	_status = _outlined_label("", 18)
+	info.add_child(_status)
+	_count_label = _outlined_label("", 18)
 	_count_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	conn.add_child(_count_label)
+	info.add_child(_count_label)
+	var reconnect := _button(info, "RECONNECT", _on_reconnect_pressed, false, 18)
+	reconnect.size_flags_horizontal = Control.SIZE_SHRINK_END
+	reconnect.custom_minimum_size = Vector2(150, 38)
 
-	v.add_child(_row(["SERVER", "MAP", "PLAYERS", "TYPE", "STATUS", ""], true))
+	# Column headers (same margins as the row strips so they line up).
+	var head_margin := MarginContainer.new()
+	head_margin.add_theme_constant_override("margin_left", 34)
+	head_margin.add_theme_constant_override("margin_right", 20)
+	head_margin.add_child(_row(["SERVER", "MAP", "PLAYERS", "STATUS", ""], true))
+	col.add_child(head_margin)
+
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 300)
+	scroll.custom_minimum_size = Vector2(0, 240)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	v.add_child(scroll)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list.add_theme_constant_override("separation", 6)
+	_list.add_theme_constant_override("separation", 8)
 	scroll.add_child(_list)
 
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 8)
-	v.add_child(bottom)
-	_quick_btn = _button(bottom, "QUICK PLAY", _on_quick_play_pressed, false)
-	_button(bottom, "REFRESH", _on_refresh_pressed, true)
-	_button(bottom, "CREATE SERVER", _open_create, true)
-	var sp := Control.new()
-	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bottom.add_child(sp)
+	# Actions.
+	var row1 := HBoxContainer.new()
+	row1.add_theme_constant_override("separation", 10)
+	col.add_child(row1)
+	_quick_btn = _button(row1, "QUICK PLAY", _on_quick_play_pressed, false)
+	_button(row1, "CREATE SERVER", _open_create, true)
+
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 10)
+	col.add_child(row2)
 	_code_edit = LineEdit.new()
-	_code_edit.placeholder_text = "Invitation code (e.g. CHILL-K7QM2)"
-	_code_edit.custom_minimum_size.x = 300
+	_code_edit.placeholder_text = "Invitation code (CHILL-K7QM2)"
+	_code_edit.custom_minimum_size = Vector2(0, 50)
+	_code_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_code_edit.max_length = 12
+	_code_edit.add_theme_font_size_override("font_size", 20)
+	MenuStyle.style_line_edit(_code_edit)
 	_code_edit.text_submitted.connect(func(_t: String) -> void: _on_join_code_pressed())
-	bottom.add_child(_code_edit)
-	_button(bottom, "JOIN PRIVATE", _on_join_code_pressed, true)
-	_button(bottom, "BACK", _on_back_pressed, false)
+	row2.add_child(_code_edit)
+	var join_priv := _button(row2, "JOIN PRIVATE", _on_join_code_pressed, true)
+	join_priv.size_flags_horizontal = Control.SIZE_SHRINK_END
+	join_priv.custom_minimum_size = Vector2(220, 50)
+
+	var row3 := HBoxContainer.new()
+	row3.add_theme_constant_override("separation", 10)
+	col.add_child(row3)
+	_button(row3, "REFRESH", _on_refresh_pressed, true)
+	_button(row3, "BACK", _on_back_pressed, false)
 
 	_build_create_overlay()
 	_show_message_row("Connecting to the game service...")
 
 
-func _button(parent: Control, text: String, cb: Callable, needs_online: bool) -> Button:
+func _outlined_label(text: String, size: int) -> Label:
+	var l := Label.new()
+	l.text = text
+	MenuStyle.outlined(l, size)
+	return l
+
+
+func _button(parent: Control, text: String, cb: Callable, needs_online: bool, font_size: int = 26) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(170, 46)
+	b.custom_minimum_size = Vector2(0, 50)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_button(b, font_size)
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()
 		cb.call())
@@ -169,22 +185,33 @@ func _button(parent: Control, text: String, cb: Callable, needs_online: bool) ->
 	return b
 
 
+## One table row of cells (labels). Header rows are outlined white, data rows plain white.
 func _row(cols: Array, header: bool) -> HBoxContainer:
 	var r := HBoxContainer.new()
-	var widths := [0, 190, 100, 90, 90, 120]
+	r.add_theme_constant_override("separation", 6)
 	for i in cols.size():
 		var l := Label.new()
 		l.text = str(cols[i])
-		if widths[i] == 0:
+		if header:
+			MenuStyle.outlined(l, 15, Color(1, 1, 1, 0.85), 5)
+		else:
+			l.add_theme_font_size_override("font_size", 17)
+			l.add_theme_color_override("font_color", MenuStyle.WHITE)
+		if COL_WIDTHS[i] == 0:
 			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			l.clip_text = true
 		else:
-			l.custom_minimum_size.x = widths[i]
-		if header:
-			l.add_theme_color_override("font_color", UITheme.MUTED)
-			l.add_theme_font_size_override("font_size", 15)
+			l.custom_minimum_size.x = COL_WIDTHS[i]
 		r.add_child(l)
 	return r
+
+
+## Wraps a row in a slanted dark strip, like a menu button.
+func _strip_panel(content: Control) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", MenuStyle.strip(Color(MenuStyle.INK, 0.92), Color(1, 1, 1, 0.55), 1, Vector4(34, 20, 6, 6)))
+	pc.add_child(content)
+	return pc
 
 
 func _build_create_overlay() -> void:
@@ -193,7 +220,7 @@ func _build_create_overlay() -> void:
 	_create_overlay.visible = false
 	add_child(_create_overlay)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.65)
+	dim.color = Color(0.04, 0.1, 0.16, 0.4)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_create_overlay.add_child(dim)
 	var center := CenterContainer.new()
@@ -201,24 +228,31 @@ func _build_create_overlay() -> void:
 	_create_overlay.add_child(center)
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(520, 0)
+	var sb := MenuStyle.flat(Color(MenuStyle.INK, 0.97), MenuStyle.ORANGE, 0, 0)
+	sb.border_width_top = 8
+	sb.shadow_color = Color(0, 0, 0, 0.45)
+	sb.shadow_size = 18
+	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
 	var m := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + side, 22)
+		m.add_theme_constant_override("margin_" + side, 24)
 	panel.add_child(m)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	m.add_child(v)
 	var t := Label.new()
 	t.text = "CREATE SERVER"
-	t.add_theme_font_size_override("font_size", 30)
-	t.add_theme_color_override("font_color", UITheme.ACCENT)
+	t.add_theme_font_override("font", MenuStyle.FONT)
+	t.add_theme_font_size_override("font_size", 38)
+	t.add_theme_color_override("font_color", MenuStyle.ORANGE)
 	v.add_child(t)
 	var nl := Label.new()
 	nl.text = "Server name"
 	v.add_child(nl)
 	_name_edit = LineEdit.new()
 	_name_edit.max_length = NetProtocol.ROOM_NAME_MAX
+	MenuStyle.style_line_edit(_name_edit)
 	v.add_child(_name_edit)
 	var vl := Label.new()
 	vl.text = "Visibility"
@@ -226,23 +260,25 @@ func _build_create_overlay() -> void:
 	_vis_opt = OptionButton.new()
 	_vis_opt.add_item("Public - listed in the browser")
 	_vis_opt.add_item("Private - join with an invitation code")
+	MenuStyle.style_option(_vis_opt)
 	v.add_child(_vis_opt)
 	var ml := Label.new()
 	ml.text = "Map"
 	v.add_child(ml)
 	_map_opt = OptionButton.new()
+	MenuStyle.style_option(_map_opt)
 	v.add_child(_map_opt)
 	_create_err = Label.new()
-	_create_err.add_theme_color_override("font_color", Color("#ff6b6b"))
+	_create_err.add_theme_color_override("font_color", MenuStyle.WARN)
 	_create_err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_create_err)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", 10)
 	v.add_child(row)
 	var create := _button(row, "CREATE", _on_create_confirmed, false)
-	create.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	create.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var cancel := _button(row, "CANCEL", func() -> void: _create_overlay.visible = false, false)
-	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
 # ---------------------------------------------------------------- state / helpers
@@ -269,12 +305,15 @@ func _show_message_row(text: String) -> void:
 		c.queue_free()
 	var l := Label.new()
 	l.text = text
-	l.add_theme_color_override("font_color", UITheme.MUTED)
-	_list.add_child(l)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 480
+	l.add_theme_font_size_override("font_size", 17)
+	l.add_theme_color_override("font_color", MenuStyle.WHITE)
+	_list.add_child(_strip_panel(l))
 
 
 func _connect() -> void:
-	_set_status("Connecting...", UITheme.MUTED)
+	_set_status("Connecting...", MenuStyle.WHITE)
 	_set_online_ui(false)
 	_show_message_row("Connecting to the game service..." if not Net.is_websocket_address(Net.host) \
 		else "Connecting... a free server may need up to a minute to wake up.")
@@ -284,7 +323,7 @@ func _connect() -> void:
 func _username_ok() -> bool:
 	var err := AppearanceData.validate_username(PlayerProfile.username)
 	if err != "":
-		_toasts.push("Fix your username first (Character Customization): " + err, Color("#ff6b6b"), 5.0)
+		_toasts.push("Fix your username first (Character Customization): " + err, MenuStyle.WARN, 5.0)
 		return false
 	return true
 
@@ -306,14 +345,14 @@ func _on_connection_failed(message: String) -> void:
 	if _quick_connect:
 		_quick_connect = false
 		_set_busy(false)
-		_toasts.push("Quick Play could not reach the game service. Check the address and your internet.", Color("#ff6b6b"), 5.0)
-	_set_status("Offline", Color("#ff6b6b"))
+		_toasts.push("Quick Play could not reach the game service. Check the address and your internet.", MenuStyle.WARN, 5.0)
+	_set_status("Offline", MenuStyle.WARN)
 	_set_online_ui(false)
 	_show_message_row(message + "\nCheck the game service address above, then press RECONNECT.")
 
 
 func _on_disconnected(message: String) -> void:
-	_set_status("Offline", Color("#ff6b6b"))
+	_set_status("Offline", MenuStyle.WARN)
 	_set_online_ui(false)
 	_show_message_row(message)
 	Net.pending_notice = ""
@@ -331,18 +370,20 @@ func _on_room_list(rooms: Array) -> void:
 		_show_message_row("No public servers yet. Press CREATE SERVER to start one!")
 		return
 	for r in rooms:
-		var row := _row([r["name"], r["map_name"], "%d/%d" % [r["players"], r["max"]], "Public", r["status"], ""], false)
+		var row := _row([r["name"], r["map_name"], "%d/%d" % [r["players"], r["max"]], r["status"]], false)
 		var jb := Button.new()
 		jb.text = "JOIN"
-		jb.custom_minimum_size = Vector2(120, 40)
+		jb.custom_minimum_size = Vector2(COL_WIDTHS[4], 36)
+		MenuStyle.style_button(jb, 20, Vector4(14, 10, 2, 2))
+		jb.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		jb.disabled = int(r["players"]) >= int(r["max"]) or _busy
 		var rid := int(r["id"])
 		jb.pressed.connect(func() -> void:
 			AudioManager.play_click()
 			_join_public(rid))
-		row.remove_child(row.get_child(5))
+		jb.mouse_entered.connect(AudioManager.play_hover)
 		row.add_child(jb)
-		_list.add_child(row)
+		_list.add_child(_strip_panel(row))
 
 
 func _on_join_succeeded(_info: Dictionary) -> void:
@@ -352,7 +393,7 @@ func _on_join_succeeded(_info: Dictionary) -> void:
 func _on_join_failed(_code: int, message: String) -> void:
 	_set_busy(false)
 	_create_overlay.visible = false
-	_toasts.push(message, Color("#ff6b6b"), 4.5)
+	_toasts.push(message, MenuStyle.WARN, 4.5)
 	Net.request_room_list()
 
 
@@ -415,7 +456,7 @@ func _on_join_code_pressed() -> void:
 		return
 	var code := _code_edit.text.strip_edges().to_upper()
 	if code == "":
-		_toasts.push("Enter an invitation code first.", Color("#ff6b6b"))
+		_toasts.push("Enter an invitation code first.", MenuStyle.WARN)
 		return
 	_set_busy(true)
 	Net.join_with_code(code)
@@ -451,4 +492,4 @@ func _on_create_confirmed() -> void:
 
 func _on_back_pressed() -> void:
 	Net.disconnect_from_server()
-	SceneManager.go("main_menu")
+	back_requested.emit()

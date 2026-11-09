@@ -36,7 +36,7 @@ func _process(delta: float) -> void:
 		return
 	match _phase:
 		"boot":
-			if sc.name == "ServerBrowser":
+			if sc.name == "MainMenu" and sc.get_browser() != null:
 				_phase = "browser"
 				Net.room_list_received.connect(_on_list)
 		"browser":
@@ -44,9 +44,9 @@ func _process(delta: float) -> void:
 				_clicked = true
 				print("SMOKE: browser online, server=%s" % Net.server_info.get("server_name"))
 				if str(a.get("mode", "create")) == "create":
-					sc._open_create()
-					sc._name_edit.text = "Smoke Room"
-					sc._on_create_confirmed()
+					sc.get_browser()._open_create()
+					sc.get_browser()._name_edit.text = "Smoke Room"
+					sc.get_browser()._on_create_confirmed()
 				else:
 					Net.request_room_list()
 			if sc.name == "OnlineRoom":
@@ -69,22 +69,22 @@ func _process(delta: float) -> void:
 				_phase = "leaving"
 				sc.leave_server()
 		"lost":
-			if sc.name == "ServerBrowser":
+			if sc.name == "MainMenu" and sc.get_browser() != null:
 				await get_tree().create_timer(1.0).timeout
 				var toast_count := 0
-				for c in sc._toasts.get_children():
+				for c in sc.get_browser()._toasts.get_children():
 					toast_count += 1
-				print("SMOKE: after loss we are in the browser, offline status='%s' (no crash)" % sc._status.text)
+				print("SMOKE: after loss we are in the browser, offline status='%s' (no crash)" % sc.get_browser()._status.text)
 				print("SMOKE: DONE")
 				get_tree().quit(0)
 		"leaving":
-			if sc.name == "ServerBrowser" and a.has("pause"):
+			if sc.name == "MainMenu" and a.has("pause"):
 				_phase = "done"
 				await get_tree().create_timer(2.0).timeout
-				print("SMOKE: browser after JOIN SERVER: net_state=%d status='%s'" % [Net.state, sc._status.text])
+				print("SMOKE: browser after JOIN SERVER: net_state=%d status='%s'" % [Net.state, sc.get_browser()._status.text])
 				print("SMOKE: DONE")
 				get_tree().quit(0)
-			elif sc.name == "ServerBrowser":
+			elif sc.name == "MainMenu":
 				_phase = "done"
 				print("SMOKE: back in browser, in_room=%s state=%d" % [Net.in_room, Net.state])
 				Net.disconnect_from_server()
@@ -97,7 +97,7 @@ func _on_list(rooms: Array) -> void:
 	var sc := get_tree().current_scene
 	if _phase == "browser" and str(a.get("mode", "create")) == "join" and not rooms.is_empty():
 		print("SMOKE: listed %d room(s); joining via browser button path" % rooms.size())
-		sc._join_public(int(rooms[0]["id"]))
+		sc.get_browser()._join_public(int(rooms[0]["id"]))
 
 
 func _report(sc: Node) -> void:

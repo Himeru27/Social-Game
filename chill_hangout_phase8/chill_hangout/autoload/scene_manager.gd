@@ -4,7 +4,8 @@ extends Node
 const SCENES := {
 	"main_menu": "res://scenes/main_menu/main_menu.tscn",
 	"character_customization": "res://scenes/character_customization/character_customization.tscn",
-	"server_browser": "res://scenes/server_browser/server_browser.tscn",
+	# The server browser now lives inside the main menu (camera orbits behind the character).
+	"server_browser": "res://scenes/main_menu/main_menu.tscn",
 	"test_arena": "res://scenes/lobby/test_arena.tscn",
 	"lobby_local": "res://scenes/lobby/local_lobby.tscn",
 	"lobby_online": "res://scenes/lobby/online_room.tscn",
@@ -30,6 +31,8 @@ func go(key: String) -> void:
 	if not SCENES.has(key):
 		push_warning("SceneManager: unknown scene '%s'" % key)
 		return
+	if key == "server_browser":
+		MainMenu.start_in_servers = true   # open the menu straight on the server screen
 	if _busy:
 		_queued = key
 		return
