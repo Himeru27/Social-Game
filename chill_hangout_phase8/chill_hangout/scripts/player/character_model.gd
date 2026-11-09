@@ -403,6 +403,13 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false)
 	body.rotation.z = 0.0
 	_elb_l.rotation.z = 0.0
 	_elb_r.rotation.z = 0.0
+	body.position.x = 0.0
+	body.position.z = 0.0
+	for hn in [_hip_l, _hip_r]:
+		hn.rotation.y = 0.0
+		hn.rotation.z = 0.0
+	_sh_l.rotation.y = 0.0
+	_sh_r.rotation.y = 0.0
 	_apply_emote(delta)
 
 
@@ -422,17 +429,7 @@ func _apply_emote(delta: float) -> void:
 	var p := {}
 	match _pose:
 		NetProtocol.EMOTE_BRAZILIAN:
-			# Funk "passinho": deep bounce on every half-beat, hips and torso swinging side to side every 2 beats,
-			# fists pumping in opposition, the free knee kicking up. Feet stay planted (hips/knees solved together).
-			var b := (t - NetProtocol.EMOTE_OFFSET_BRAZILIAN) * TAU / NetProtocol.EMOTE_BEAT_BRAZILIAN
-			var sq := 0.5 + 0.2 * cos(b * 2.0)               # squat depth: lowest on every beat and half-beat
-			var sw := sin(b * 0.5)
-			var bx := -0.2
-			p = {"body_x": bx, "body_y": -(_thigh + _shin) * (1.0 - cos(sq)), "body_ry": sw * 0.45, "body_z": sw * 0.14,
-				"shl_x": 0.9 + 0.7 * sw, "shr_x": 0.9 - 0.7 * sw, "shl_z": 0.3, "shr_z": -0.3,
-				"ell_x": 1.7, "elr_x": 1.7,
-				"hipl_x": sq - bx + maxf(0.0, sw) * 0.4, "hipr_x": sq - bx + maxf(0.0, -sw) * 0.4,
-				"kneel_x": -2.0 * sq - maxf(0.0, sw) * 0.5, "kneer_x": -2.0 * sq - maxf(0.0, -sw) * 0.5}
+			p = _pose_brazilian(t)
 		NetProtocol.EMOTE_COFFEE:
 			# Left arm tucked at the waist, right hand brings the mug up, head tips back for the sip.
 			var r := _coffee_lift(t)
@@ -440,17 +437,7 @@ func _apply_emote(delta: float) -> void:
 				"shl_x": 0.45, "shl_z": 0.3, "ell_x": 1.4,
 				"body_x": 0.07 * r, "body_z": sin(t * 1.4) * 0.015}
 		NetProtocol.EMOTE_STRANGER:
-			# 80s step-touch on the beat: weight shifts side to side, alternate foot taps, snapping arms,
-			# and every 4 beats the right arm shoots up in a disco point.
-			var beat := NetProtocol.EMOTE_BEAT_STRANGER
-			var bt := t - NetProtocol.EMOTE_OFFSET_STRANGER
-			var s := cos(bt * TAU / (2.0 * beat))
-			var up := _sip(fposmod(bt / (4.0 * beat), 1.0), 0.5, 0.6, 0.75, 0.85)
-			p = {"body_y": -absf(s) * 0.025, "body_z": s * 0.1, "body_ry": s * 0.25, "body_x": 0.05 * cos(bt * TAU / beat),
-				"shl_x": 0.8 + 0.3 * s, "shl_z": 0.3, "ell_x": 1.7,
-				"shr_x": lerpf(0.8 - 0.3 * s, 0.0, up), "shr_z": lerpf(-0.3, 2.4, up), "elr_x": lerpf(1.7, 0.3, up),
-				"hipl_x": maxf(0.0, s) * 0.5, "hipr_x": maxf(0.0, -s) * 0.5,
-				"kneel_x": -maxf(0.0, s) * 0.3, "kneer_x": -maxf(0.0, -s) * 0.3}
+			p = _pose_stranger(t)
 		NetProtocol.EMOTE_HI:
 			p = {"shr_z": 2.6 + 0.1 * sin(t * 4.5), "shr_x": 0.15, "elr_z": sin(t * 9.0) * 0.6, "elr_x": 0.2,
 				"body_z": sin(t * 4.5) * 0.03}
@@ -474,12 +461,199 @@ func _apply_emote(delta: float) -> void:
 	_mix(_hip_r, "x", p, "hipr_x", w)
 	_mix(_knee_l, "x", p, "kneel_x", w)
 	_mix(_knee_r, "x", p, "kneer_x", w)
+	_mix(_hip_l, "y", p, "hipl_y", w)
+	_mix(_hip_r, "y", p, "hipr_y", w)
+	_mix(_hip_l, "z", p, "hipl_z", w)
+	_mix(_hip_r, "z", p, "hipr_z", w)
+	_mix(_sh_l, "y", p, "shl_y", w)
+	_mix(_sh_r, "y", p, "shr_y", w)
+	if p.has("body_px"):
+		body.position.x += float(p["body_px"]) * w
 	if p.has("body_y"):
 		body.position.y += float(p["body_y"]) * w
+	if p.has("ground"):
+		_ground_fix(w)
 	if _cup != null and is_instance_valid(_cup) and _pose == NetProtocol.EMOTE_COFFEE:
 		# Keep the mug upright in world space whatever the arm does; tilt it toward the mouth while sipping.
 		var r2 := _coffee_lift(t)
 		_cup.rotation.x = -(_sh_r.rotation.x + _elb_r.rotation.x + body.rotation.x) - 0.8 * r2
+
+
+# ---------------------------------------------------------------- dance choreography
+
+## Puts the lowest foot back on the floor whatever the pose does to the legs (used by the two dances).
+func _ground_fix(w: float) -> void:
+	var lo := 1000.0
+	for k in [_knee_l, _knee_r]:
+		var a: Vector3 = to_local((k as Node3D).to_global(Vector3(0.0, -_shin, 0.0)))
+		lo = minf(lo, a.y)
+	body.position.y += (SOLE - lo) * w
+
+
+func _lerp_arm(a: Array, b: Array, k: float) -> Array:
+	return [lerpf(float(a[0]), float(b[0]), k), lerpf(float(a[1]), float(b[1]), k),
+			lerpf(float(a[2]), float(b[2]), k), lerpf(float(a[3]), float(b[3]), k)]
+
+
+## Arm shape = [shoulder flex, abduction (+ outward), forearm turn-in (+ toward centre), elbow flex].
+func _arm_keys(p: Dictionary, nm: String, sd: float, a: Array) -> void:
+	p["sh%s_x" % nm] = float(a[0])
+	p["sh%s_z" % nm] = sd * float(a[1])
+	p["sh%s_y" % nm] = sd * float(a[2])
+	p["el%s_x" % nm] = float(a[3])
+
+
+# Brazilian arm shapes, taken from the reference clip (fist at the chin, arm out low, fists together, ...).
+const _BR_CHIN := [1.19, 0.52, 1.18, 1.66]
+const _BR_LOW := [0.0, 0.08, -0.77, 0.89]
+const _BR_CHEST := [0.56, 0.13, 0.89, 1.61]
+const _BR_GUARD := [0.89, 0.43, 0.87, 1.82]
+const _BR_CROSS := [0.94, 0.83, 1.79, 0.81]
+## 8-beat sequence following the clip: [right arm, left arm] per beat.
+const _BR_SEQ := [[_BR_CHIN, _BR_LOW], [_BR_LOW, _BR_CHIN], [_BR_CHIN, _BR_LOW], [_BR_CHEST, _BR_CHEST],
+		[_BR_LOW, _BR_CHIN], [_BR_CHIN, _BR_LOW], [_BR_CROSS, _BR_LOW], [_BR_GUARD, _BR_GUARD]]
+
+
+## Brazilian funk "passinho" as in the reference clip: boxing guard (one fist at the chin, the other arm out low, fists
+## together, arm sweeping across the chest, high guard), a foot flicked out to the side on every beat (right, left,
+## right...), the hips shifting over the planted foot and a knee-bend bounce that is lowest on the kick.
+func _pose_brazilian(t: float) -> Dictionary:
+	var b: float = (t - NetProtocol.EMOTE_OFFSET_BRAZILIAN) / NetProtocol.EMOTE_BEAT_BRAZILIAN
+	var n: int = floori(b)
+	var f: float = b - float(n)
+	var s: float = 1.0 if posmod(n, 2) == 0 else -1.0       # +1: the character's right foot flicks on this beat
+	var env: float = smoothstep(0.0, 0.26, f) * (1.0 - smoothstep(0.40, 0.72, f))
+	var bounce: float = 0.5 + 0.5 * cos(TAU * f)
+	var bounce2: float = 0.5 + 0.5 * cos(TAU * 2.0 * f)
+	var lean := -0.10
+	var sq: float = 0.30 + 0.12 * bounce + 0.03 * bounce2
+	var dx: float = -s * 0.055 * smoothstep(0.0, 0.2, f) * (1.0 - smoothstep(0.55, 0.85, f))
+	var yaw: float = s * 0.22 * env
+	var p := {"ground": true, "body_x": lean, "body_px": dx, "body_ry": yaw}
+	var leff: float = (_thigh + _shin) * cos(sq)
+	var comp: float = asin(clampf(-dx / leff, -0.5, 0.5)) - 0.12 * yaw
+	for side in [-1, 1]:
+		var sd: float = float(side)
+		var nm := "r" if side > 0 else "l"
+		var lift: float = env if s * sd > 0.0 else 0.0
+		p["hip%s_x" % nm] = lerpf(sq - lean, 0.40 - lean, lift)
+		p["knee%s_x" % nm] = lerpf(-2.0 * sq, -1.55, lift)
+		p["hip%s_z" % nm] = sd * 0.36 * lift + comp * (1.0 - lift)
+		p["hip%s_y" % nm] = -yaw
+	var m: int = posmod(n, 8)
+	var cur: Array = _BR_SEQ[m]
+	var prev: Array = _BR_SEQ[posmod(m - 1, 8)]
+	var k: float = smoothstep(0.0, 0.30, f)
+	for side in [-1, 1]:
+		var idx: int = 0 if side > 0 else 1
+		var a: Array = _lerp_arm(prev[idx], cur[idx], k)
+		a[0] = float(a[0]) + 0.10 * bounce
+		a[3] = float(a[3]) + 0.10 * bounce
+		_arm_keys(p, "r" if side > 0 else "l", float(side), a)
+	return p
+
+
+# Baby arm shapes (see the Stranger Things reference clip).
+const _BB_HANG := [0.0, 0.10, 0.0, 0.15]
+const _BB_MOUTH := [1.19, 0.05, 0.96, 1.62]
+const _BB_BELLY := [0.05, 0.0, 0.79, 1.59]
+const _BB_OPEN := [0.10, 0.35, -0.30, 0.30]
+const _BB_REACH := [0.78, 1.03, 0.59, 1.25]
+const _BB_ZOMBIE := [1.40, 0.12, 0.15, 0.35]
+const _BB_HANGFWD := [0.35, 0.10, 0.20, 0.50]
+const _BB_SIDEOUT := [0.20, 0.80, -0.30, 0.50]
+const _BB_NECK := [0.90, -0.10, 0.91, 1.92]
+const _STRANGER_LOOP_END := 14.2        ## length of stranger_things_dance.ogg (s); it loops back to 0.75 s
+const _STRANGER_LOOP_START := 0.75
+
+var _baby_kf: Array = []
+
+
+func _bk(beat: float, lean: float, yaw: float, roll: float, c0: float, sq: float, sway: float, march: float,
+		bob: float, ra: Array, la: Array) -> Array:
+	return [beat, lean, yaw, roll, c0, sq, sway, march, bob,
+			ra[0], ra[1], ra[2], ra[3], la[0], la[1], la[2], la[3]]
+
+
+## Keyframes in beats after the music drop: [beat, lean(-fwd/+back), yaw, roll, stance width, knee bend, sway,
+## march, bob, right arm (4), left arm (4)].
+func _baby_keys() -> Array:
+	if _baby_kf.is_empty():
+		var H := _BB_HANG
+		_baby_kf = [
+			_bk(-3.0, 0.05, 0.0, 0.0, 0.02, 0.03, 0.0, 0.0, 0.0, H, H),                       # standing still, arms down
+			_bk(0.0, 0.05, 0.0, 0.0, 0.02, 0.03, 0.0, 0.0, 0.0, H, H),
+			_bk(0.5, -0.12, 0.0, 0.0, 0.30, 0.25, 1.0, 0.0, 1.0, _BB_MOUTH, _BB_MOUTH),       # wide-stance sway, hands at mouth
+			_bk(2.5, -0.12, 0.0, 0.0, 0.30, 0.25, 1.0, 0.0, 1.0, _BB_MOUTH, _BB_MOUTH),
+			_bk(3.0, 0.0, 0.0, 0.0, 0.03, 0.05, 0.0, 0.0, 0.3, _BB_BELLY, _BB_BELLY),
+			_bk(3.5, 0.30, 0.0, 0.0, 0.04, 0.06, 0.0, 0.5, 0.3, _BB_OPEN, _BB_OPEN),          # looking up at the ceiling
+			_bk(4.5, 0.30, 0.0, 0.0, 0.04, 0.06, 0.0, 0.5, 0.3, _BB_OPEN, _BB_OPEN),
+			_bk(5.0, -0.22, 0.0, 0.0, 0.04, 0.10, 0.0, 1.0, 0.3, _BB_BELLY, _BB_REACH),       # looking down, one hand reaching
+			_bk(6.3, -0.22, 0.0, 0.0, 0.04, 0.10, 0.0, 1.0, 0.3, _BB_BELLY, _BB_REACH),
+			_bk(7.0, 0.06, -1.45, 0.0, 0.05, 0.30, 0.0, 0.5, 0.3, _BB_ZOMBIE, _BB_ZOMBIE),    # turned to profile, arms forward
+			_bk(8.5, 0.06, -1.45, 0.0, 0.05, 0.30, 0.0, 0.5, 0.3, _BB_ZOMBIE, _BB_ZOMBIE),
+			_bk(9.0, -0.10, -1.45, 0.0, 0.05, 0.40, 0.0, 0.0, 1.0, _BB_HANGFWD, _BB_HANGFWD), # crouched bounce, arms hanging
+			_bk(10.5, -0.10, -1.45, 0.0, 0.05, 0.40, 0.0, 0.0, 1.0, _BB_HANGFWD, _BB_HANGFWD),
+			_bk(11.3, 0.0, 0.0, 0.0, 0.04, 0.12, 0.0, 1.0, 0.3, _BB_SIDEOUT, H),              # turns back, stepping
+			_bk(12.2, 0.30, 0.0, 0.0, 0.03, 0.05, 0.0, 0.0, 0.2, H, H),                        # looks up again
+			_bk(13.5, 0.25, 0.0, 0.0, 0.03, 0.05, 0.0, 0.0, 0.2, _BB_NECK, H),                 # hand up to the neck
+			_bk(15.5, 0.25, 0.0, 0.0, 0.03, 0.05, 0.0, 0.0, 0.2, _BB_NECK, H),
+			_bk(16.75, 0.05, 0.0, 0.0, 0.02, 0.03, 0.0, 0.0, 0.0, H, H),                       # eases back to the start pose
+		]
+	return _baby_kf
+
+
+## The baby's dance from the reference clip, timed to the music: still through the intro, the dance starts on the drop
+## (beat 3 of the track), and the pose eases back to the start pose right before the audio loops (14.2 s -> 0.75 s,
+## exactly 19 beats), so every repeat lines up with the music.
+func _pose_stranger(t: float) -> Dictionary:
+	var beat := NetProtocol.EMOTE_BEAT_STRANGER
+	var u: float = t
+	if t >= _STRANGER_LOOP_END:
+		u = _STRANGER_LOOP_START + fposmod(t - _STRANGER_LOOP_END, _STRANGER_LOOP_END - _STRANGER_LOOP_START)
+	var b: float = (u - (NetProtocol.EMOTE_OFFSET_STRANGER + 3.0 * beat)) / beat
+	var kf := _baby_keys()
+	var i := 0
+	while i < kf.size() - 2 and b >= float((kf[i + 1] as Array)[0]):
+		i += 1
+	var ka: Array = kf[i]
+	var kb: Array = kf[i + 1]
+	var k: float = smoothstep(float(ka[0]), float(kb[0]), b)
+	var v: Array = []
+	for j in ka.size():
+		v.append(lerpf(float(ka[j]), float(kb[j]), k))
+	var lean: float = v[1]
+	var yaw: float = v[2]
+	var roll_k: float = v[3]
+	var c0: float = v[4]
+	var sq0: float = v[5]
+	var sway: float = v[6]
+	var march: float = v[7]
+	var bob: float = v[8]
+	var n: int = floori(b)
+	var f: float = b - float(n)
+	var side_a: float = cos(PI * b)                                  # leans left / right on alternate beats
+	var wide: float = 0.5 - 0.5 * cos(TAU * b)                       # 0 on the beat, 1 on the half beat
+	var c: float = lerpf(c0, c0 * 0.35, sway * wide)                 # feet wide on the beat, together between
+	var sq: float = sq0 + 0.08 * bob * (0.5 + 0.5 * cos(TAU * b))
+	var roll: float = roll_k + 0.10 * sway * side_a
+	var dx: float = 0.05 * sway * side_a
+	var p := {"ground": true, "body_x": lean, "body_ry": yaw, "body_z": roll, "body_px": dx}
+	var march_env: float = march * smoothstep(0.0, 0.25, f) * (1.0 - smoothstep(0.45, 0.75, f))
+	var s: float = 1.0 if posmod(n, 2) == 0 else -1.0
+	for side in [-1, 1]:
+		var sd: float = float(side)
+		var nm := "r" if side > 0 else "l"
+		var lift: float = march_env if s * sd > 0.0 else 0.0
+		var desired: float = sd * (0.13 + 0.65 * sin(c))
+		var hip_x_now: float = dx + sd * 0.13
+		var hz: float = asin(clampf((desired - hip_x_now) / 0.65, -0.6, 0.6)) - roll
+		p["hip%s_x" % nm] = lerpf(sq - lean, 0.70 - lean, lift)
+		p["knee%s_x" % nm] = lerpf(-2.0 * sq, -1.30, lift)
+		p["hip%s_z" % nm] = hz * (1.0 - lift)
+	_arm_keys(p, "r", 1.0, [v[9], v[10], v[11], v[12]])
+	_arm_keys(p, "l", -1.0, [v[13], v[14], v[15], v[16]])
+	return p
 
 
 ## How far the mug is raised (0 = held at the chest, 1 = at the mouth). Timed to the audio: a small lift at ~1 s,

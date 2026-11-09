@@ -48,9 +48,9 @@ const EMOTES: Array[Dictionary] = [
 ## music files (Taka La Dentro from 0:08 = 89.80 bpm, Stranger Things dance = 84.76 bpm). The animation uses them so it
 ## moves exactly on the beat of the audio.
 const EMOTE_BEAT_BRAZILIAN := 60.0 / 89.80
-const EMOTE_OFFSET_BRAZILIAN := 0.60
+const EMOTE_OFFSET_BRAZILIAN := 0.64
 const EMOTE_BEAT_STRANGER := 60.0 / 84.76
-const EMOTE_OFFSET_STRANGER := 0.16
+const EMOTE_OFFSET_STRANGER := 0.21
 const EMOTE_COOLDOWN_MSEC := 300
 const EMOTE_CANCEL_SPEED_Q := 40      ## server cancels an emote if the player moves faster than 2 m/s
 
