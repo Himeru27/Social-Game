@@ -433,7 +433,9 @@ func _apply_emote(delta: float) -> void:
 		NetProtocol.EMOTE_COFFEE:
 			# Left arm tucked at the waist, right hand brings the mug up, head tips back for the sip.
 			var r := _coffee_lift(t)
-			p = {"shr_x": lerpf(0.7, 1.3, r), "shr_z": lerpf(-0.35, -0.55, r), "elr_x": lerpf(1.7, 2.4, r),
+			var sip := _coffee_sip_arm()
+			p = {"shr_x": lerpf(0.7, sip[0], r), "shr_y": lerpf(0.0, sip[1], r), "shr_z": lerpf(-0.35, sip[2], r),
+				"elr_x": lerpf(1.7, sip[3], r),
 				"shl_x": 0.45, "shl_z": 0.3, "ell_x": 1.4,
 				"body_x": 0.07 * r, "body_z": sin(t * 1.4) * 0.015}
 		NetProtocol.EMOTE_STRANGER:
@@ -474,9 +476,13 @@ func _apply_emote(delta: float) -> void:
 	if p.has("ground"):
 		_ground_fix(w)
 	if _cup != null and is_instance_valid(_cup) and _pose == NetProtocol.EMOTE_COFFEE:
-		# Keep the mug upright in world space whatever the arm does; tilt it toward the mouth while sipping.
+		# Keep the mug upright whatever the arm does; tip the rim toward the mouth while sipping.
 		var r2 := _coffee_lift(t)
-		_cup.rotation.x = -(_sh_r.rotation.x + _elb_r.rotation.x + body.rotation.x) - 0.8 * r2
+		var arm_b := _sh_r.basis * _elb_r.basis
+		var hold := Basis(Vector3.RIGHT, COFFEE_TILT * r2)
+		_cup.basis = arm_b.inverse() * hold
+		# The hand carries the mug from underneath, so the forearm stays below the chin instead of covering the mouth.
+		_cup.position = Vector3(0.0, -_fore, 0.0) - arm_b.inverse() * (hold * COFFEE_GRIP)
 
 
 # ---------------------------------------------------------------- dance choreography
@@ -660,6 +666,35 @@ func _pose_stranger(t: float) -> Dictionary:
 ## then the sip while the slurp plays (4.2 - 5.15 s) and the mug comes back down.
 func _coffee_lift(t: float) -> float:
 	return maxf(0.3 * _sip(t, 0.8, 1.0, 1.3, 1.5), _sip(t, 3.3, 4.0, 5.1, 5.6))
+
+
+## Mug tilt at the sip (radians, rim tipped toward the face) and where the near rim edge meets the lips (body space).
+const COFFEE_TILT := 0.4
+const COFFEE_LIPS := Vector3(0.0, 0.8, -0.158)
+const COFFEE_GRIP := Vector3(0.0, -0.03, 0.0)      ## where the hand holds the mug, relative to its origin: under the base
+
+
+## Arm angles [shoulder x, y, z, elbow x] that put the near edge of the mug rim on the lips at the full sip.
+## Two-bone IK in body space, so it holds for every arm length: the elbow stays low and out to the side.
+func _coffee_sip_arm() -> Array:
+	var tip := Basis(Vector3.RIGHT, COFFEE_TILT) * Vector3(0.0, 0.05, 0.048)       # near rim edge, relative to the mug origin
+	var target := COFFEE_LIPS - tip + Basis(Vector3.RIGHT, COFFEE_TILT) * COFFEE_GRIP   # where the hand has to be
+	var d := target - _sh_r.position
+	var l1 := -_elb_r.position.y
+	var l2 := _fore                                                                 # elbow -> hand
+	var dl := clampf(d.length(), absf(l1 - l2) + 0.001, l1 + l2 - 0.001)
+	var bend := acos(clampf((dl * dl - l1 * l1 - l2 * l2) / (2.0 * l1 * l2), -1.0, 1.0))
+	var gamma := acos(clampf((l1 + l2 * cos(bend)) / dl, -1.0, 1.0))
+	var axis := d.normalized()
+	var pole := Vector3(0.7, -1.0, 0.15)                                            # elbow points down and out
+	var side := (pole - axis * pole.dot(axis)).normalized()
+	var upper := axis * cos(gamma) + side * sin(gamma)                              # shoulder -> elbow direction
+	var fore := ((axis * dl) - upper * l1).normalized()                             # elbow -> mug direction
+	var hinge := upper.cross(fore).normalized()
+	var down := -upper
+	var rot := Basis(hinge, down, hinge.cross(down))
+	var e := rot.get_euler()
+	return [e.x, e.y, e.z, bend]
 
 
 ## 0 -> 1 between a and b, holds until c, back to 0 at d (used for the sips).

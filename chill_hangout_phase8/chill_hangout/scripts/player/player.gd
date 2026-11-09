@@ -114,7 +114,7 @@ func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool) -> v
 		return
 	model.step_pending = false
 	_step_player.stream = AudioManager.get_footstep()
-	_step_player.volume_db = -15.0 if crouch else (-6.0 if speed > 4.5 else -10.0)
+	_step_player.volume_db = -10.0 if crouch else (-1.0 if speed > 4.5 else -5.0)
 	_step_player.pitch_scale = randf_range(0.97, 1.03)
 	_step_player.play()
 
