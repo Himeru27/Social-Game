@@ -7,7 +7,7 @@ extends Node3D
 const SETTINGS_SCENE: PackedScene = preload("res://scenes/ui/settings_menu.tscn")
 const MENU_MUSIC := "res://assets/audio/music/menu_theme.ogg"
 ## Display font for the main menu and About screen (Anton, SIL Open Font License - see assets/fonts/OFL.txt).
-const MENU_FONT: Font = preload("res://assets/fonts/Anton-Regular.ttf")
+var MENU_FONT: Font = MenuStyle.FONT
 
 const ORANGE := MenuStyle.ORANGE
 const INK := MenuStyle.INK

@@ -108,9 +108,12 @@ func _make_audio3d(volume_db: float) -> AudioStreamPlayer3D:
 
 ## One footstep per foot plant of the walk/run animation (CharacterModel.step_pending), so the sound is locked
 ## to the legs: faster running = faster steps automatically. Crouch steps are quieter, sprint steps louder.
-func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool) -> void:
-	if not on_ground or speed < 0.6:
+func _footsteps(_delta: float, speed: float, on_ground: bool, crouch: bool, moving: bool = true) -> void:
+	if not moving or not on_ground or speed < 1.0:
+		# Standing still (or sliding to a stop): no new steps, and cut any step that is still sounding.
 		model.step_pending = false
+		if _step_player.playing:
+			_step_player.stop()
 		return
 	if not model.step_pending:
 		return
@@ -309,7 +312,7 @@ func _physics_process(delta: float) -> void:
 	if wish != Vector3.ZERO:
 		model.rotation.y = lerp_angle(model.rotation.y, atan2(-wish.x, -wish.z), 1.0 - exp(-12.0 * delta))
 	model.animate(delta, Vector2(velocity.x, velocity.z).length(), crouching)
-	_footsteps(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), crouching)
+	_footsteps(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), crouching, wish != Vector3.ZERO)
 
 	_update_rig(delta)
 
@@ -403,10 +406,14 @@ func _remote_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		model.animate(delta, 0.0, false, true)
 		return
+	var prev_pos := global_position
 	global_position = s["pos"]
 	model.rotation.y = lerp_angle(model.rotation.y, s["yaw"], 1.0 - exp(-14.0 * delta))
 	model.animate(delta, s["speed"], crouching)
-	_footsteps(delta, float(s["speed"]), true, crouching)
+	# Trust the real movement of the interpolated body over the reported speed, so a remote player who
+	# stopped never keeps stepping.
+	var moved := (global_position - prev_pos).length() / maxf(delta, 0.0001)
+	_footsteps(delta, minf(float(s["speed"]), moved), true, crouching, moved > 0.3)
 
 
 func remote_emote(id: int) -> void:

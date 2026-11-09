@@ -3,7 +3,22 @@ extends RefCounted
 ## Shared look for the main menu and the server screen: slanted strips, Anton font,
 ## white + orange on a bright sky. No red anywhere.
 
-const FONT: Font = preload("res://assets/fonts/Anton-Regular.ttf")
+const FONT_PATH := "res://assets/fonts/Anton-Regular.ttf"
+## Loaded at runtime (not preload) so the project still opens if Godot has not imported the font yet.
+static var FONT: Font = _load_font()
+
+
+static func _load_font() -> Font:
+	if ResourceLoader.exists(FONT_PATH):
+		var res: Variant = load(FONT_PATH)
+		if res is Font:
+			return res
+	if FileAccess.file_exists(FONT_PATH):
+		var f := FontFile.new()
+		f.data = FileAccess.get_file_as_bytes(FONT_PATH)
+		return f
+	return ThemeDB.fallback_font
+
 
 const ORANGE := Color("#ff9a1f")        # accent + hover
 const ORANGE_DEEP := Color("#e07a00")   # pressed

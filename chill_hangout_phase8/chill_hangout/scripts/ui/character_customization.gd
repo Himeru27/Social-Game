@@ -18,17 +18,27 @@ var _face_focus := false
 
 
 func _ready() -> void:
-	theme = UITheme.get_theme()
+	theme = MenuStyle.get_theme()
 	_app = PlayerProfile.appearance.duplicate()
 	_name = PlayerProfile.username
-	var bg := ColorRect.new()
-	bg.color = UITheme.BG
+	# Bright sky, like the main menu and the server browser.
+	var sky := GradientTexture2D.new()
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 1.0])
+	grad.colors = PackedColorArray([Color("#3f9cf0"), Color("#bfe6ff")])
+	sky.gradient = grad
+	sky.fill_from = Vector2(0, 0)
+	sky.fill_to = Vector2(0, 1)
+	var bg := TextureRect.new()
+	bg.texture = sky
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 24)
+		margin.add_theme_constant_override("margin_" + side, 40)
 	add_child(margin)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 24)
@@ -50,11 +60,7 @@ func _build_preview_column() -> Control:
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 10)
-	var title := Label.new()
-	title.text = "CHARACTER"
-	title.add_theme_font_size_override("font_size", 40)
-	title.add_theme_color_override("font_color", UITheme.ACCENT)
-	col.add_child(title)
+	col.add_child(MenuStyle.title_word("CHARACTER", MenuStyle.ORANGE, 64))
 
 	var holder := Control.new()
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -65,6 +71,11 @@ func _build_preview_column() -> Control:
 	vpc.stretch = true
 	vpc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	holder.add_child(vpc)
+	var frame := Panel.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_theme_stylebox_override("panel", MenuStyle.flat(Color(0, 0, 0, 0), MenuStyle.WHITE, 3, 0))
+	holder.add_child(frame)
 	var vp := SubViewport.new()
 	vp.own_world_3d = true
 	vp.msaa_3d = Viewport.MSAA_4X
@@ -78,7 +89,7 @@ func _build_preview_column() -> Control:
 
 	var hint := Label.new()
 	hint.text = "Drag to rotate  -  scroll to zoom"
-	hint.add_theme_color_override("font_color", UITheme.MUTED)
+	MenuStyle.outlined(hint, 18)
 	col.add_child(hint)
 	var views := HBoxContainer.new()
 	views.add_theme_constant_override("separation", 10)
@@ -91,9 +102,9 @@ func _build_preview_column() -> Control:
 func _build_preview_world(vp: SubViewport) -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("#2b3363")
+	env.background_color = Color("#bfe6ff")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#d9e0ff")
+	env.ambient_light_color = Color("#ffffff")
 	env.ambient_light_energy = 0.7
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	var we := WorldEnvironment.new()
@@ -103,7 +114,7 @@ func _build_preview_world(vp: SubViewport) -> void:
 	sun.rotation_degrees = Vector3(-35, 30, 0)
 	sun.shadow_enabled = true
 	vp.add_child(sun)
-	LowPoly.cylinder(vp, 0.9, 0.95, 0.1, 10, Color("#3b4780"), Vector3(0, -0.05, 0))
+	LowPoly.cylinder(vp, 0.9, 0.95, 0.1, 10, Color("#6fcf4a"), Vector3(0, -0.05, 0))
 	_pivot = Node3D.new()
 	_pivot.rotation.y = PI # model faces -Z; turn it toward the camera
 	vp.add_child(_pivot)
@@ -144,10 +155,15 @@ func _focus(face: bool) -> void:
 
 func _build_panel() -> Control:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(580, 0)
+	panel.custom_minimum_size = Vector2(640, 0)
+	var psb := MenuStyle.flat(Color(MenuStyle.INK, 0.97), MenuStyle.ORANGE, 0, 0)
+	psb.border_width_top = 8
+	psb.shadow_color = Color(0, 0, 0, 0.45)
+	psb.shadow_size = 18
+	panel.add_theme_stylebox_override("panel", psb)
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 18)
+		margin.add_theme_constant_override("margin_" + side, 22)
 	panel.add_child(margin)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
@@ -164,7 +180,7 @@ func _build_panel() -> Control:
 	presets.add_child(_button("FEMALE PRESET", func() -> void: _load_preset("female")))
 	body.add_child(presets)
 	_gender_label = Label.new()
-	_gender_label.add_theme_color_override("font_color", UITheme.MUTED)
+	_gender_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	body.add_child(_gender_label)
 	_add_swatches(body, "Skin tone", "skin_tone", AppearanceData.SKIN_TONES)
 	_add_range(body, "Height", "height")
@@ -205,6 +221,7 @@ func _build_panel() -> Control:
 	nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_tab.add_child(nl)
 	var edit := LineEdit.new()
+	MenuStyle.style_line_edit(edit)
 	edit.text = _name
 	edit.max_length = AppearanceData.MAX_NAME_LEN
 	edit.placeholder_text = "Username"
@@ -215,11 +232,11 @@ func _build_panel() -> Control:
 	var rules := Label.new()
 	rules.text = "Letters, numbers, spaces, - and _ only. Must be unique on the server you join."
 	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rules.add_theme_color_override("font_color", UITheme.MUTED)
+	rules.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	name_tab.add_child(rules)
 
 	_status = Label.new()
-	_status.add_theme_color_override("font_color", UITheme.TEAL)
+	_status.add_theme_color_override("font_color", MenuStyle.ORANGE)
 	v.add_child(_status)
 
 	var grid := GridContainer.new()
@@ -250,28 +267,47 @@ func _tab(tabs: TabContainer, tab_name: String) -> VBoxContainer:
 	scroll.name = tab_name
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	tabs.add_child(scroll)
+	# Side margins leave room for the slant of the row strips.
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 8)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 4)
+	pad.add_theme_constant_override("margin_bottom", 4)
+	scroll.add_child(pad)
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 14)
-	scroll.add_child(box)
+	box.add_theme_constant_override("separation", 10)
+	pad.add_child(box)
 	return box
 
 
-func _row(parent: Control, text: String) -> HBoxContainer:
+## Slanted dark strip around one control row, like the rows in the server browser.
+func _strip(parent: Control) -> HBoxContainer:
+	var strip := PanelContainer.new()
+	strip.add_theme_stylebox_override("panel", MenuStyle.strip(MenuStyle.ROW_FILL, Color(1, 1, 1, 0.4), 1, Vector4(34, 26, 8, 8)))
+	parent.add_child(strip)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 12)
+	strip.add_child(h)
+	return h
+
+
+func _row(parent: Control, text: String) -> HBoxContainer:
+	var h := _strip(parent)
 	var l := Label.new()
 	l.text = text
 	l.custom_minimum_size.x = 150
 	h.add_child(l)
-	parent.add_child(h)
 	return h
 
 
 func _button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 46)
+	b.custom_minimum_size = Vector2(0, 50)
+	MenuStyle.style_button(b, 24)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.pressed.connect(func() -> void:
 		AudioManager.play_click()
 		cb.call())
@@ -295,9 +331,9 @@ func _add_choice(parent: Control, label: String, key: String, names: Array[Strin
 func _style_swatch(b: Button, color: Color, selected: bool) -> void:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = color
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(4 if selected else 1)
-	sb.border_color = Color.WHITE if selected else Color(0, 0, 0, 0.4)
+	sb.border_color = Color.WHITE if selected else Color(1, 1, 1, 0.35)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		b.add_theme_stylebox_override(state, sb)
 
@@ -347,11 +383,16 @@ func _add_range(parent: Control, label: String, key: String) -> void:
 func _add_flag(parent: Control, label: String, bit: int) -> void:
 	var c := CheckButton.new()
 	c.text = label
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	c.add_theme_color_override("font_color", MenuStyle.WHITE)
+	c.add_theme_color_override("font_hover_color", MenuStyle.WHITE)
+	c.add_theme_color_override("font_pressed_color", MenuStyle.WHITE)
+	c.add_theme_color_override("font_hover_pressed_color", MenuStyle.WHITE)
 	c.toggled.connect(func(on: bool) -> void:
 		AudioManager.play_click()
 		var bits := int(_app["accessories"])
 		_set_opt("accessories", (bits | (1 << bit)) if on else (bits & ~(1 << bit))))
-	parent.add_child(c)
+	_strip(parent).add_child(c)
 	_refreshers.append(func() -> void: c.set_pressed_no_signal((int(_app["accessories"]) >> bit) & 1 == 1))
 
 
@@ -387,7 +428,7 @@ func _on_name_changed(text: String) -> void:
 	_name = text
 	var err := AppearanceData.validate_username(text)
 	_name_msg.text = err if err != "" else "Looks good"
-	_name_msg.add_theme_color_override("font_color", Color("#ff6b6b") if err != "" else UITheme.TEAL)
+	_name_msg.add_theme_color_override("font_color", MenuStyle.WARN if err != "" else MenuStyle.ORANGE)
 	_apply_btn.disabled = err != ""
 	_save_btn.disabled = err != ""
 	if _status:
