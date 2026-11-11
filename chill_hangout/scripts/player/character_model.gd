@@ -1,7 +1,8 @@
 class_name CharacterModel
 extends Node3D
-## Quaternius GLB character wrapper. Keeps the Phase 8 CharacterModel API while driving
-## each imported rig with its own animation names and bone map. Faces -Z, origin at the feet.
+## Character built from an appearance Dictionary (see AppearanceData): the supplied Quaternius GLB for the chosen
+## gender, driven by its own idle / walk / run / sit clips plus the original procedural crouch and emotes.
+## Faces -Z, origin at the feet. Call rebuild(app) to change look, animate() every frame.
 
 const SOLE := 0.02
 const CROUCH_ANGLE := 0.95
@@ -34,32 +35,106 @@ var _ew := 0.0            ## emote blend weight 0..1
 var _fore := 0.3
 var _cup: Node3D          ## coffee mug held by the right hand during the coffee emote
 var _hi: Sprite3D         ## pixel-art "HI" shown next to the head during the hi emote
-
-# Imported Quaternius character scenes. The two rigs are intentionally kept separate:
-# their skeletons and animation names are not interchangeable.
-const MALE_MODEL: PackedScene = preload("res://assets/characters/male_character.glb")
-const FEMALE_MODEL: PackedScene = preload("res://assets/characters/female_character.glb")
-const MALE_VISUAL_SCALE := 0.372
-const FEMALE_VISUAL_SCALE := 0.34
-
-var _visual: Node3D
-var _animation_player: AnimationPlayer
-var _skeleton: Skeleton3D
-var _model_kind := "male"
-var _active_animation := ""
-var _runtime_animations: Dictionary = {}
-var _bone_indices: Dictionary = {}
-var _body_origin_y := 0.82
-var _was_sitting := false
-var _stand_animation := ""
-var _stand_in_progress := false
-var _sit_transition_in_progress := false
-var _external_shoulder_pose := false
 ## Gait sync: set to true on every foot plant (see animate). Player consumes it to play the footstep sound.
 var step_pending := false
-var _step_idx := -1000000
+var _clock := 0.0
+var _pos_w := 0.0             ## weight of the driver's body translation this frame (dances / crouch)
+var _sh_r_z_written := 0.06   ## what animate() last wrote to the right shoulder (anything else = external wave)
 ## Height of the seat surface in world units (set by Player.sit).
 var sit_height := 0.45
+
+
+## ---------------------------------------------------------------------------------------------------------------
+## Phase 9: the visible body is the supplied Quaternius GLB (assets/characters/*.glb). The procedural rig below
+## (body / hips / knees / shoulders / elbows) is kept as an invisible "driver": all of the original gait, sit,
+## emote and prop code keeps running on it unchanged, and _retarget() copies its joint angles onto the matching
+## bones of the GLB skeleton wherever the driver is in charge (emotes, crouch, main-menu wave). Everything else
+## (idle / walk / run / sit / stand) plays the GLB's own animations.
+## ---------------------------------------------------------------------------------------------------------------
+
+const MODEL_PATHS := {
+	"male": "res://assets/characters/male_character.glb",
+	"female": "res://assets/characters/female_character.glb",
+}
+
+## Per-model rig description (the two GLBs have different skeletons, clip names and materials).
+## scale: uniform factor that brings the GLB (about 5 units tall) to a human size; it is the only scaling applied.
+## head_y / head_top / face_z / lips_y: measured on the GLB (metres, model space, GLB frame: +Z = front).
+const RIGS := {
+	"male": {
+		"scale": 0.38,
+		"body": "Body", "hip_l": "UpperLeg.L", "hip_r": "UpperLeg.R", "knee_l": "LowerLeg.L", "knee_r": "LowerLeg.R",
+		"ankle_l": "LowerLeg.L_end", "ankle_r": "LowerLeg.R_end", "foot_l": "", "foot_r": "",
+		"sh_l": "UpperArm.L", "sh_r": "UpperArm.R", "elb_l": "LowerArm.L", "elb_r": "LowerArm.R",
+		"hand_l": "Palm.L", "hand_r": "Palm.R", "hand2_l": "MiddleHand.L", "hand2_r": "MiddleHand.R",
+		"head": "Head", "torso": "Torso", "neck": "Neck", "head_dz": -0.03,
+		"idle": "HumanArmature|Man_Idle", "walk": "HumanArmature|Man_Walk", "run": "HumanArmature|Man_Run",
+		"sit": "HumanArmature|Man_Sitting", "sit_loop": "", "stand": "HumanArmature|Man_Standing",
+		"walk_speed": 1.5, "run_speed": 3.2, "sit_hip_y": 0.48,
+		"head_y": 1.68, "head_top": 1.83, "head_w": 0.17, "head_d": 0.24, "face_z": 0.13, "lips_y": 1.60, "eye_y": 1.70,
+		"materials": {"Shirt": "shirt", "Skin": "skin", "Pants": "pants", "Eyes": "eyes", "Socks": "shoes", "Hair": "hair"},
+	},
+	"female": {
+		"scale": 0.337,
+		"body": "Hips", "hip_l": "LeftUpLeg", "hip_r": "RightUpLeg", "knee_l": "LeftLeg", "knee_r": "RightLeg",
+		"ankle_l": "LeftFoot", "ankle_r": "RightFoot", "foot_l": "LeftFoot", "foot_r": "RightFoot",
+		"sh_l": "LeftArm", "sh_r": "RightArm", "elb_l": "LeftForeArm", "elb_r": "RightForeArm",
+		"hand_l": "LeftHand", "hand_r": "RightHand", "hand2_l": "", "hand2_r": "",
+		"head": "Head", "torso": "Spine2", "neck": "Neck", "head_dz": -0.01,
+		"idle": "Armature|Idle", "walk": "Armature|Walking", "run": "Armature|Running",
+		"sit": "Armature|SitIdle", "sit_loop": "Armature|SitIdle", "stand": "",
+		"walk_speed": 1.23, "run_speed": 3.13, "sit_hip_y": 0.54,
+		"head_y": 1.58, "head_top": 1.75, "head_w": 0.17, "head_d": 0.22, "face_z": 0.10, "lips_y": 1.52, "eye_y": 1.60,
+		"materials": {},
+	},
+}
+## The woman has ONE material whose 32x32 texture holds six flat colours; these are swapped (never edited on disk).
+const FEMALE_PALETTE := {
+	"shirt": Color8(231, 101, 92), "hair": Color8(209, 194, 112), "skin": Color8(231, 189, 145),
+	"pants": Color8(97, 135, 211), "shoes": Color8(240, 71, 47), "eyes": Color8(41, 41, 41),
+}
+## Appearance keys the GLB models can honour without altering their geometry (everything else is shown disabled).
+const SUPPORTED := ["skin_tone", "hair_color", "eye_color", "shirt_color", "pants_color", "shoes_color",
+	"height", "width", "thickness", "accessories", "accessory_color"]
+const RUN_ENTER := 2.6
+const RUN_EXIT := 2.2
+const CLIP_BLEND := 0.2
+
+var _kind := ""
+var _rig: Dictionary
+var _offset: Node3D          ## vertical/horizontal correction applied while seated
+var _vis: Node3D             ## scale + 180 degree turn (the GLB faces +Z, the game faces -Z)
+var _glb: Node3D
+var _skel: Skeleton3D
+var _ap: AnimationPlayer
+var _mesh: MeshInstance3D
+var _s2m := Transform3D.IDENTITY            ## skeleton space -> model space (without the seat offset)
+var _hip_y := 0.8
+var _hip_z := 0.0
+var _body_c := Vector3.ZERO                 ## real root bone pivot minus the driver body origin
+var _lips := Vector3(0.0, 0.8, -0.158)
+var _hi_y := 1.0
+var _feet: Array = []                      ## foot bones kept flat while the legs are driven (crouch)
+var _bone := {}                             ## joint name -> {idx, parent, n (Basis), rest (Basis)}
+var _anim_bones := {}                       ## bone idx -> true when the GLB animations key it
+var _touched := {}                          ## driver joint -> emote weight this frame
+var _wave_ref := 0.0
+var _clip := ""
+var _was_sitting := false
+var _stand_until := 0.0
+var _speed_in := 0.0
+var _sitting_in := false
+var _run_mode := false
+var _head_anchor: Node3D
+var _torso_anchor: Node3D
+var _head_idx := -1
+var _torso_idx := -1
+var _props: Node3D
+var _foot_idx := [-1, -1]
+var _foot_up := [false, false]
+var _ground_ref := 0.05
+var _sit_w := 0.0
+var _orig_mats := {}                        ## surface index -> original (shared) material, never modified
 
 
 static func preset(kind: String) -> Dictionary:
@@ -70,6 +145,11 @@ static func create(app: Dictionary) -> CharacterModel:
 	var m := CharacterModel.new()
 	m.rebuild(app)
 	return m
+
+
+## Is this appearance option applied to the GLB models? (the customization UI greys out the others)
+static func option_supported(key: String) -> bool:
+	return key in SUPPORTED
 
 
 ## Emotes are procedural poses blended on top of the normal animation (see _apply_emote).
@@ -95,314 +175,430 @@ func get_right_hand_position() -> Vector3:
 
 
 func get_right_shoulder() -> Node3D:
-	# The Phase 8 main-menu hero writes a wave angle through this proxy each frame.
-	_external_shoulder_pose = true
 	return _sh_r
 
 
+## Switching gender loads the other GLB; any other change only re-skins / re-scales the loaded one.
 func rebuild(app: Dictionary) -> void:
-	for c in get_children():
-		remove_child(c)
-		c.queue_free()
 	_app = AppearanceData.sanitize(app)
-	_emote = -1
-	_pose = -1
-	_ew = 0.0
-	_pt = 0.0
-	_active_animation = ""
-	_animation_player = null
-	_skeleton = null
-	_visual = null
-	_runtime_animations.clear()
-	_bone_indices.clear()
+	var kind: String = _app["gender"]
+	if kind != _kind or _glb == null:
+		for c in get_children():
+			remove_child(c)
+			c.queue_free()
+		_cup = null
+		_hi = null
+		_kind = ""
+		_load_model(kind)
+	_apply_look(_app)
+
+
+func _load_model(kind: String) -> void:
+	_kind = kind
+	_rig = RIGS[kind]
+	_offset = Node3D.new()
+	add_child(_offset)
+	_vis = Node3D.new()
+	_vis.scale = Vector3.ONE * float(_rig["scale"])
+	_vis.rotation.y = PI
+	_offset.add_child(_vis)
+	_glb = (load(MODEL_PATHS[kind]) as PackedScene).instantiate()
+	_vis.add_child(_glb)
+	_skel = _glb.find_children("*", "Skeleton3D", true, false)[0]
+	_ap = _glb.find_children("*", "AnimationPlayer", true, false)[0]
+	_mesh = _glb.find_children("*", "MeshInstance3D", true, false)[0]
+	_ap.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+	for k in ["idle", "walk", "run", "sit_loop"]:
+		var n: String = _rig[k]
+		if n != "" and _ap.has_animation(n):
+			_ap.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+	_anim_bones.clear()
+	var any_clip: Animation = _ap.get_animation(_rig["idle"])
+	for i in any_clip.get_track_count():
+		var p := str(any_clip.track_get_path(i))
+		var bi := _skel.find_bone(p.get_slice(":", 1))
+		if bi >= 0:
+			_anim_bones[bi] = true
+	# skeleton space -> model space: every node between the skeleton and the seat offset node
+	_s2m = Transform3D.IDENTITY
+	var n3: Node = _skel
+	while n3 != _offset:
+		_s2m = (n3 as Node3D).transform * _s2m
+		n3 = n3.get_parent()
+	_build_driver()
+	_head_idx = _skel.find_bone(_rig["head"])
+	_torso_idx = _skel.find_bone(_rig["torso"])
+	_props = null
+	_orig_mats.clear()
+	for s in _mesh.mesh.get_surface_count():
+		_orig_mats[s] = _mesh.mesh.surface_get_material(s)
+	_foot_idx = [_skel.find_bone(_rig["ankle_l"]), _skel.find_bone(_rig["ankle_r"])]
+	_foot_up = [false, false]
+	_clip = ""
 	_was_sitting = false
-	_stand_in_progress = false
-	_sit_transition_in_progress = false
-	_external_shoulder_pose = false
-	_cup = null
-	_hi = null
-	_build(_app)
+	_play_clip(_rig["idle"], 0.0, 1.0)
 
 
-func _build(a: Dictionary) -> void:
-	_model_kind = str(a.get("gender", "male"))
-	scale = Vector3.ONE # Keep the source model's proportions; only its imported visual root is uniformly fitted.
-	_thigh = 0.4
-	_shin = 0.4
-	_fore = 0.3
-	_body_origin_y = _thigh + _shin + SOLE
+func _rest_model(bone: String) -> Vector3:
+	return _s2m * _skel.get_bone_global_rest(_skel.find_bone(bone)).origin
 
-	var packed: PackedScene = MALE_MODEL if _model_kind == "male" else FEMALE_MODEL
-	_visual = packed.instantiate() as Node3D
-	_visual.name = "QuaterniusMale" if _model_kind == "male" else "QuaterniusFemale"
-	# The supplied Quaternius GLBs face +Z after import; Phase 8 player models face -Z.
-	_visual.rotation.y = PI
-	var fit_scale := MALE_VISUAL_SCALE if _model_kind == "male" else FEMALE_VISUAL_SCALE
-	_visual.scale = Vector3.ONE * fit_scale
-	add_child(_visual)
-	_find_imported_nodes(_visual)
-	_cache_bone_indices()
-	_cache_animation_names()
-	_apply_male_material_customization(a)
 
-	# Keep a lightweight pose rig for the existing procedural emotes, crouch and coffee/Hi props.
-	# It contains no replacement geometry: all visible character geometry remains in the GLB.
+## Builds the invisible procedural rig with the REAL limb lengths of the GLB, so the unchanged gait / sit / ground /
+## coffee-IK maths produce angles that fit the actual skeleton.
+func _build_driver() -> void:
+	var r := _rig
+	var hl := _rest_model(r["hip_l"])
+	var hr := _rest_model(r["hip_r"])
+	var kl := _rest_model(r["knee_l"])
+	var al := _rest_model(r["ankle_l"])
+	_hip_y = (hl.y + hr.y) * 0.5
+	_hip_z = (hl.z + hr.z) * 0.5
+	var ground := minf(al.y, _rest_model(r["ankle_r"]).y)
+	_ground_ref = ground
+	_thigh = hl.distance_to(kl)
+	_shin = kl.distance_to(al) + maxf(ground - SOLE, 0.0)   # knee -> floor (ankle height included), as in the original rig
+	var root := _rest_model(r["body"])
 	body = Node3D.new()
-	body.position.y = _body_origin_y
 	add_child(body)
+	body.position = Vector3(0, _thigh + _shin + SOLE, _hip_z)
+	_body_c = root - Vector3(0, _hip_y, _hip_z)
+	var sh_l := _rest_model(r["sh_l"])
+	var sh_r := _rest_model(r["sh_r"])
+	var el_l := _rest_model(r["elb_l"])
+	var el_r := _rest_model(r["elb_r"])
+	var ua := sh_l.distance_to(el_l)
+	var hand := _rest_model(r["hand_r"])
+	if r["hand2_r"] != "":
+		hand = (hand + _rest_model(r["hand2_r"])) * 0.5
+	_fore = el_r.distance_to(hand)
+	var origin := Vector3(0, _hip_y, _hip_z)
 	for side in [-1, 1]:
+		var hp: Vector3 = (hl if side < 0 else hr) - origin
 		var hip := Node3D.new()
-		hip.position = Vector3(0.13 * side, 0.0, 0.0)
+		hip.position = hp
 		body.add_child(hip)
 		var knee := Node3D.new()
-		knee.position = Vector3(0.0, -_thigh, 0.0)
+		knee.position = Vector3(0, -_thigh, 0)
 		hip.add_child(knee)
+		var sp: Vector3 = (sh_l if side < 0 else sh_r) - origin
 		var sh := Node3D.new()
-		sh.position = Vector3((0.5 / 2.0 + 0.09) * side, 0.56, 0.0)
+		sh.position = sp
 		body.add_child(sh)
-		var elbow := Node3D.new()
-		elbow.position = Vector3(0.0, -0.28, 0.0)
-		sh.add_child(elbow)
+		var elb := Node3D.new()
+		elb.position = Vector3(0, -ua, 0)
+		sh.add_child(elb)
 		if side < 0:
 			_hip_l = hip
 			_knee_l = knee
 			_sh_l = sh
-			_elb_l = elbow
+			_elb_l = elb
 		else:
 			_hip_r = hip
 			_knee_r = knee
 			_sh_r = sh
-			_elb_r = elbow
-
-	_play_model_animation("Man_Idle" if _model_kind == "male" else "Idle", true, 0.0)
-	if _animation_player == null:
-		push_warning("CharacterModel: the imported %s GLB has no AnimationPlayer." % _model_kind)
-	if _skeleton == null:
-		push_warning("CharacterModel: the imported %s GLB has no Skeleton3D." % _model_kind)
-
-
-func _find_imported_nodes(node: Node) -> void:
-	if node is AnimationPlayer and _animation_player == null:
-		_animation_player = node as AnimationPlayer
-	if node is Skeleton3D and _skeleton == null:
-		_skeleton = node as Skeleton3D
-	for child in node.get_children():
-		_find_imported_nodes(child)
-
-
-func _cache_bone_indices() -> void:
-	if _skeleton == null:
-		return
-	for i in _skeleton.get_bone_count():
-		_bone_indices[str(_skeleton.get_bone_name(i))] = i
-
-
-func _cache_animation_names() -> void:
-	if _animation_player == null:
-		return
-	_animation_player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+			_elb_r = elb
+	_lips = Vector3(0.0, float(r["lips_y"]) - _hip_y, -float(r["face_z"]) - _hip_z)
+	_hi_y = float(r["head_y"]) - _hip_y + 0.1
+	# retarget table: neutral (hanging) correction and rest orientation of every driven bone
+	_bone.clear()
+	var s2m_rot := _s2m.basis.orthonormalized()
+	var table := {
+		"body": [r["body"], ""], "hip_l": [r["hip_l"], r["knee_l"]], "hip_r": [r["hip_r"], r["knee_r"]],
+		"knee_l": [r["knee_l"], r["ankle_l"]], "knee_r": [r["knee_r"], r["ankle_r"]],
+		"sh_l": [r["sh_l"], r["elb_l"]], "sh_r": [r["sh_r"], r["elb_r"]],
+		"elb_l": [r["elb_l"], r["hand_l"]], "elb_r": [r["elb_r"], r["hand_r"]],
+	}
+	for k in table:
+		var bi := _skel.find_bone(table[k][0])
+		var n := Basis.IDENTITY
+		if table[k][1] != "":
+			var d := _rest_model(table[k][1]) - _rest_model(table[k][0])
+			n = Basis(Quaternion(d.normalized(), Vector3.DOWN))
+		_bone[k] = {"idx": bi, "parent": _skel.get_bone_parent(bi), "n": n,
+			"rest": s2m_rot * _skel.get_bone_global_rest(bi).basis.orthonormalized()}
+	_feet.clear()
+	for k in ["foot_l", "foot_r"]:
+		if r[k] != "":
+			var fi := _skel.find_bone(r[k])
+			_feet.append({"idx": fi, "parent": _skel.get_bone_parent(fi),
+				"rest": s2m_rot * _skel.get_bone_global_rest(fi).basis.orthonormalized()})
 
 
-func _find_animation(fragment: String) -> String:
-	if _animation_player == null:
-		return ""
-	var wanted := fragment.to_lower()
-	for animation_name in _animation_player.get_animation_list():
-		var library_parts := str(animation_name).split("/", false)
-		var local_name := str(library_parts[library_parts.size() - 1])
-		var clip_parts := local_name.split("|", false)
-		var base_name := str(clip_parts[clip_parts.size() - 1]).to_lower()
-		if base_name == wanted:
-			return str(animation_name)
-	return ""
-
-
-func _runtime_clip(source_name: String, looped: bool) -> String:
-	if source_name.is_empty() or _animation_player == null:
-		return ""
-	var key := source_name + ("#loop" if looped else "#once")
-	if _runtime_animations.has(key):
-		return str(_runtime_animations[key])
-	var source: Animation = _animation_player.get_animation(source_name)
-	if source == null:
-		return ""
-	var clip := source.duplicate(true) as Animation
-	clip.loop_mode = Animation.LOOP_LINEAR if looped else Animation.LOOP_NONE
-	if not _animation_player.has_animation_library("runtime"):
-		_animation_player.add_animation_library("runtime", AnimationLibrary.new())
-	var runtime_name := "runtime/clip_%d" % _runtime_animations.size()
-	_animation_player.get_animation_library("runtime").add_animation(runtime_name.get_slice("/", 1), clip)
-	_runtime_animations[key] = runtime_name
-	return runtime_name
-
-
-func _play_model_animation(fragment: String, looped := true, blend := 0.16) -> void:
-	if _animation_player == null:
-		return
-	var source_name := _find_animation(fragment)
-	if source_name.is_empty():
-		return
-	var runtime_name := _runtime_clip(source_name, looped)
-	if runtime_name.is_empty() or runtime_name == _active_animation:
-		return
-	_active_animation = runtime_name
-	_animation_player.play(runtime_name, blend)
-
-
-func _update_model_animation(delta: float, speed: float, sitting: bool, airborne: bool) -> void:
-	if _animation_player == null:
-		return
-	var idle_name := "Man_Idle" if _model_kind == "male" else "Idle"
-	var walk_name := "Man_Walk" if _model_kind == "male" else "Walking"
-	var run_name := "Man_Run" if _model_kind == "male" else "Running"
-	var jump_name := "Man_Jump" if _model_kind == "male" else "Jump"
-
-	if _was_sitting and not sitting and _model_kind == "male":
-		_stand_animation = _find_animation("Man_Standing")
-		_stand_in_progress = not _stand_animation.is_empty()
-	if sitting:
-		_stand_in_progress = false
-	if sitting and not _was_sitting and _model_kind == "female" and not _find_animation("Sitting").is_empty():
-		_sit_transition_in_progress = true
-		_play_model_animation("Sitting", false, 0.12)
-	_was_sitting = sitting
-
-	if _stand_in_progress:
-		var stand_runtime := _runtime_clip(_stand_animation, false)
-		if _active_animation != stand_runtime:
-			_play_model_animation("Man_Standing", false, 0.12)
-		elif not _animation_player.is_playing():
-			_stand_in_progress = false
-			_play_model_animation(idle_name, true)
-	elif _emote >= 0:
-		_sit_transition_in_progress = false
-		_play_model_animation(idle_name, true)
-	elif sitting:
-		if _model_kind == "female":
-			if _sit_transition_in_progress and not _animation_player.is_playing():
-				_sit_transition_in_progress = false
-				_play_model_animation("SitIdle", true)
-			elif not _sit_transition_in_progress:
-				_play_model_animation("SitIdle", true)
-		else:
-			_play_model_animation("Man_Sitting", true)
-	elif airborne:
-		_sit_transition_in_progress = false
-		if _model_kind == "male" and speed > 4.5 and not _find_animation("Man_RunningJump").is_empty():
-			_play_model_animation("Man_RunningJump", false)
-		else:
-			_play_model_animation(jump_name, false)
-	elif speed > 4.5:
-		_sit_transition_in_progress = false
-		_play_model_animation(run_name, true)
-	elif speed > 0.15:
-		_sit_transition_in_progress = false
-		_play_model_animation(walk_name, true)
+## Re-skins / re-scales the loaded GLB. Options equal to the model's own default leave the ORIGINAL imported
+## materials in place, so the default look is exactly the supplied GLB. Overrides are duplicates; the shared
+## imported resources are never edited.
+func _apply_look(a: Dictionary) -> void:
+	scale = Vector3(a["width"], a["height"], a["thickness"])
+	var d := AppearanceData.default_for(_kind)
+	var cols := {}
+	if a["skin_tone"] != d["skin_tone"]:
+		cols["skin"] = AppearanceData.SKIN_TONES[int(a["skin_tone"])]
+	if a["hair_color"] != d["hair_color"]:
+		cols["hair"] = AppearanceData.HAIR_COLORS[int(a["hair_color"])]
+	if a["eye_color"] != d["eye_color"]:
+		cols["eyes"] = AppearanceData.EYE_COLORS[int(a["eye_color"])]
+	for k in ["shirt", "pants", "shoes"]:
+		if a[k + "_color"] != d[k + "_color"]:
+			cols[k] = AppearanceData.CLOTH_COLORS[int(a[k + "_color"])]
+	if _orig_mats.is_empty():      # headless / dummy renderer: no mesh data to re-skin
+		pass
+	elif _kind == "male":
+		var map: Dictionary = _rig["materials"]
+		for s in _orig_mats:
+			var orig: Material = _orig_mats[s]
+			var role: String = map.get(orig.resource_name, "")
+			if cols.has(role):
+				var m := orig.duplicate() as StandardMaterial3D
+				m.albedo_color = cols[role]
+				_mesh.set_surface_override_material(s, m)
+			else:
+				_mesh.set_surface_override_material(s, null)
 	else:
-		_sit_transition_in_progress = false
-		_play_model_animation(idle_name, true)
-	_animation_player.advance(delta)
+		_mesh.set_surface_override_material(0, null if cols.is_empty() else _female_material(cols))
+	_build_accessories(int(a["accessories"]), AppearanceData.CLOTH_COLORS[int(a["accessory_color"])])
 
 
-func _apply_male_material_customization(a: Dictionary) -> void:
-	# The male GLB has distinct Shirt/Skin/Pants/Eyes/Socks/Hair materials. Duplicate
-	# only the selected material at runtime; imported source materials are never edited.
-	if _model_kind != "male":
+func _female_material(cols: Dictionary) -> Material:
+	var orig := _orig_mats[0] as StandardMaterial3D
+	var src: Image = orig.albedo_texture.get_image()
+	if src.is_compressed():
+		src.decompress()
+	var img := Image.create(src.get_width(), src.get_height(), false, Image.FORMAT_RGBA8)
+	for y in src.get_height():
+		for x in src.get_width():
+			var c := src.get_pixel(x, y)
+			for role in cols:
+				var p: Color = FEMALE_PALETTE[role]
+				if absf(c.r - p.r) < 0.01 and absf(c.g - p.g) < 0.01 and absf(c.b - p.b) < 0.01:
+					c = Color(cols[role], c.a)
+					break
+			img.set_pixel(x, y, c)
+	img.generate_mipmaps()
+	var m := orig.duplicate() as StandardMaterial3D
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	return m
+
+
+func _b(parent: Node, size: Vector3, color: Color, pos: Vector3, rot_deg: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var mi := LowPoly.box(parent, size, color, pos)
+	mi.rotation_degrees = rot_deg
+	return mi
+
+
+## Optional accessories (all off by default). Boxes follow the head / torso bone; they are not part of the GLB.
+func _build_accessories(bits: int, col: Color) -> void:
+	if _props != null:
+		_props.queue_free()
+		_props = null
+	if bits == 0:
 		return
-	var defaults := AppearanceData.default_for("male")
-	var mesh_instance := _find_first_mesh(_visual)
-	if mesh_instance == null or mesh_instance.mesh == null:
+	_props = Node3D.new()
+	_offset.add_child(_props)
+	var hc := Node3D.new()      # head-anchored (origin = head centre, +Z = back, -Z = front)
+	var tc := Node3D.new()      # torso-anchored (origin = torso bone)
+	_props.add_child(hc)
+	_props.add_child(tc)
+	_head_anchor = hc
+	_torso_anchor = tc
+	var hw: float = _rig["head_w"]
+	var hd: float = _rig["head_d"]
+	var fz: float = float(_rig["face_z"])
+	if bits & 1: # glasses
+		var frame := Color("#1d1d22")
+		var ey: float = float(_rig["eye_y"]) - float(_rig["head_y"])
+		for side in [-1, 1]:
+			var gx: float = hw * 0.22 * side
+			_b(hc, Vector3(0.07, 0.01, 0.01), frame, Vector3(gx, ey + 0.03, -fz))
+			_b(hc, Vector3(0.07, 0.01, 0.01), frame, Vector3(gx, ey - 0.03, -fz))
+			_b(hc, Vector3(0.01, 0.06, 0.01), frame, Vector3(gx - 0.035, ey, -fz))
+			_b(hc, Vector3(0.01, 0.06, 0.01), frame, Vector3(gx + 0.035, ey, -fz))
+		_b(hc, Vector3(0.02, 0.01, 0.01), frame, Vector3(0, ey + 0.02, -fz))
+	if bits & 2: # cap
+		var top: float = float(_rig["head_top"]) - float(_rig["head_y"])
+		_b(hc, Vector3(hw + 0.05, 0.08, hd + 0.04), col, Vector3(0, top - 0.05, 0.0))
+		_b(hc, Vector3(hw * 0.8, 0.015, 0.12), col.darkened(0.15), Vector3(0, top - 0.085, -hd * 0.62))
+	var neck_y: float = _rest_model(_rig["neck"]).y - _rest_model(_rig["torso"]).y
+	if bits & 4: # backpack
+		_b(tc, Vector3(0.3, 0.38, 0.12), col, Vector3(0, neck_y - 0.24, 0.17))
+		for sx in [-0.11, 0.11]:
+			_b(tc, Vector3(0.04, 0.42, 0.02), col.darkened(0.2), Vector3(sx, neck_y - 0.2, -0.13))
+	if bits & 8: # scarf
+		_b(tc, Vector3(0.27, 0.09, 0.24), col, Vector3(0, neck_y - 0.04, 0.0))
+		_b(tc, Vector3(0.09, 0.24, 0.04), col, Vector3(0.09, neck_y - 0.17, -0.13))
+
+
+# ---------------------------------------------------------------- GLB animation + retargeting
+
+func _process(delta: float) -> void:
+	if _glb != null:
+		advance_pose(delta)
+
+
+## One frame of GLB animation: pick / advance the clip, then let the driver overrule the bones it controls.
+func advance_pose(delta: float) -> void:
+	_clock += delta
+	_update_clip()
+	_ap.advance(delta)
+	_skel.force_update_all_bone_transforms()     # fresh global poses for the retarget maths below
+	_retarget()
+	_skel.force_update_all_bone_transforms()
+	_update_seat_offset(delta)
+	_update_anchors()
+	_detect_steps()
+
+
+func _play_clip(clip: String, blend: float, spd: float) -> void:
+	if clip == "" or not _ap.has_animation(clip):
 		return
-	var palette_by_option := {
-		"shirt_color": AppearanceData.CLOTH_COLORS,
-		"skin_tone": AppearanceData.SKIN_TONES,
-		"pants_color": AppearanceData.CLOTH_COLORS,
-		"eye_color": AppearanceData.EYE_COLORS,
-		"shoes_color": AppearanceData.CLOTH_COLORS,
-		"hair_color": AppearanceData.HAIR_COLORS,
-	}
-	var material_by_option := {
-		"shirt_color": "shirt", "skin_tone": "skin", "pants_color": "pants",
-		"eye_color": "eyes", "shoes_color": "socks", "hair_color": "hair",
-	}
-	for surface in mesh_instance.mesh.get_surface_count():
-		var source_material := mesh_instance.mesh.surface_get_material(surface)
-		if not (source_material is StandardMaterial3D):
+	if clip != _clip:
+		_ap.play(clip, blend)
+		_clip = clip
+	_ap.speed_scale = spd
+
+
+func _update_clip() -> void:
+	var sp := _speed_in
+	if _sitting_in:
+		_was_sitting = true
+		_stand_until = 0.0
+		_play_clip(_rig["sit"], 0.3, 1.0)
+		return
+	if _was_sitting:
+		_was_sitting = false
+		var st: String = _rig["stand"]
+		if st != "" and _ap.has_animation(st):
+			_stand_until = _clock + _ap.get_animation(st).length
+			_play_clip(st, 0.2, 1.0)
+	if _stand_until > _clock and sp < 0.5:
+		return
+	_stand_until = 0.0
+	if sp < 0.3:
+		_play_clip(_rig["idle"], CLIP_BLEND, 1.0)
+		return
+	if _run_mode and sp < RUN_EXIT:
+		_run_mode = false
+	elif not _run_mode and sp > RUN_ENTER:
+		_run_mode = true
+	if _run_mode:
+		_play_clip(_rig["run"], CLIP_BLEND, clampf(sp / float(_rig["run_speed"]), 0.8, 2.0))
+	else:
+		_play_clip(_rig["walk"], CLIP_BLEND, clampf(sp / float(_rig["walk_speed"]), 0.5, 1.8))
+
+
+func _node_key(n: Node3D) -> String:
+	if n == body:
+		return "body"
+	if n == _hip_l:
+		return "hip_l"
+	if n == _hip_r:
+		return "hip_r"
+	if n == _knee_l:
+		return "knee_l"
+	if n == _knee_r:
+		return "knee_r"
+	if n == _sh_l:
+		return "sh_l"
+	if n == _sh_r:
+		return "sh_r"
+	if n == _elb_l:
+		return "elb_l"
+	return "elb_r"
+
+
+## Copies the driver's joint angles onto the GLB bones, blended with the clip pose by a per-joint weight:
+## emote weight for the joints an emote drives, crouch weight for body / legs, and the main menu's wave.
+func _retarget() -> void:
+	var cw := _crouch * (1.0 - _sit)
+	var w := {"body": cw, "hip_l": cw, "hip_r": cw, "knee_l": cw, "knee_r": cw,
+		"sh_l": 0.0, "sh_r": 0.0, "elb_l": 0.0, "elb_r": 0.0}
+	for k in _touched:
+		w[k] = maxf(float(w[k]), float(_touched[k]))
+	var dz := absf(_sh_r.rotation.z - _sh_r_z_written)
+	if dz > 0.02 and not _touched.has("sh_r"):
+		w["sh_r"] = smoothstep(0.02, 0.35, dz)
+	var qb := body.basis
+	var qh_l := qb * _hip_l.basis
+	var qh_r := qb * _hip_r.basis
+	var qs_l := qb * _sh_l.basis
+	var qs_r := qb * _sh_r.basis
+	var chain := {"body": qb, "hip_l": qh_l, "hip_r": qh_r, "knee_l": qh_l * _knee_l.basis, "knee_r": qh_r * _knee_r.basis,
+		"sh_l": qs_l, "sh_r": qs_r, "elb_l": qs_l * _elb_l.basis, "elb_r": qs_r * _elb_r.basis}
+	var s2m_inv := _s2m.basis.orthonormalized().inverse()
+	for k in ["body", "hip_l", "hip_r", "knee_l", "knee_r", "sh_l", "sh_r", "elb_l", "elb_r"]:
+		var wk: float = w[k]
+		if wk <= 0.001:
 			continue
-		var material_name := str(source_material.resource_name).to_lower()
-		if material_name.is_empty():
-			var fallback_names := ["shirt", "skin", "pants", "eyes", "socks", "hair"]
-			if surface < fallback_names.size():
-				material_name = fallback_names[surface]
-		for option in material_by_option:
-			if material_name.contains(str(material_by_option[option])) and int(a.get(option, defaults[option])) != int(defaults[option]):
-				var palette: Array = palette_by_option[option]
-				var index := clampi(int(a[option]), 0, palette.size() - 1)
-				var material := (source_material as StandardMaterial3D).duplicate() as StandardMaterial3D
-				material.albedo_color = palette[index]
-				mesh_instance.set_surface_override_material(surface, material)
-				break
+		var info: Dictionary = _bone[k]
+		var target: Basis = s2m_inv * (chain[k] as Basis) * (info["n"] as Basis) * (info["rest"] as Basis)
+		var par: int = info["parent"]
+		var pg := _skel.get_bone_global_pose(par).basis.orthonormalized() if par >= 0 else Basis.IDENTITY
+		var q := (pg.inverse() * target).orthonormalized().get_rotation_quaternion()
+		var idx: int = info["idx"]
+		_skel.set_bone_pose_rotation(idx, _skel.get_bone_pose_rotation(idx).slerp(q, wk).normalized())
+	if cw > 0.001:
+		for f in _feet:
+			var fpar: int = f["parent"]
+			var fpg := _skel.get_bone_global_pose(fpar).basis.orthonormalized()
+			var fq := (fpg.inverse() * (s2m_inv * (f["rest"] as Basis))).orthonormalized().get_rotation_quaternion()
+			var fidx: int = f["idx"]
+			_skel.set_bone_pose_rotation(fidx, _skel.get_bone_pose_rotation(fidx).slerp(fq, cw).normalized())
+	var wp := maxf(cw, _pos_w)
+	if wp > 0.001:
+		var bi: int = _bone["body"]["idx"]
+		var par2: int = _bone["body"]["parent"]
+		var pgt := _skel.get_bone_global_pose(par2) if par2 >= 0 else Transform3D.IDENTITY
+		var cur: Vector3 = _s2m * (pgt * _skel.get_bone_pose_position(bi))
+		var tgt := body.position + _body_c
+		var want := Vector3(cur.x + body.position.x * wp, lerpf(cur.y, tgt.y, wp), cur.z)
+		_skel.set_bone_pose_position(bi, pgt.affine_inverse() * (_s2m.affine_inverse() * want))
 
 
-func _find_first_mesh(node: Node) -> MeshInstance3D:
-	if node is MeshInstance3D:
-		return node as MeshInstance3D
-	for child in node.get_children():
-		var found := _find_first_mesh(child)
-		if found != null:
-			return found
-	return null
+## While seated the hips are pinned over the seat's floor point and lowered / raised to the seat height
+## (the GLB sit clips were authored for one chair; the original rig adapted to every seat height).
+func _update_seat_offset(delta: float) -> void:
+	_sit_w = lerpf(_sit_w, 1.0 if _sitting_in else 0.0, 1.0 - exp(-9.0 * delta))
+	var bi: int = _bone["body"]["idx"]
+	var hips: Vector3 = _s2m * _skel.get_bone_global_pose(bi).origin
+	var tgt_y := sit_height / maxf(scale.y, 0.01) + 0.12 - float(_rig["sit_hip_y"])
+	_offset.position = Vector3(-hips.x * _sit_w, tgt_y * _sit_w, -(hips.z - _body_c.z - _hip_z) * _sit_w)
 
 
-func _apply_external_right_shoulder_pose() -> void:
-	if _skeleton == null:
+func _update_anchors() -> void:
+	if _props == null:
 		return
-	var bone_name := "UpperArm.R" if _model_kind == "male" else "RightArm"
-	var bone_index := int(_bone_indices.get(bone_name, -1))
-	if bone_index >= 0:
-		_skeleton.set_bone_pose_rotation(bone_index, _sh_r.quaternion)
+	_anchor(_head_anchor, _head_idx, Vector3(0.0, float(_rig["head_y"]), float(_rig["head_dz"])))
+	_anchor(_torso_anchor, _torso_idx, Vector3.ZERO)
 
 
-func _apply_proxy_pose() -> void:
-	if _skeleton == null:
-		return
-	# The imported models have different bone names. Only the major joints used by
-	# the existing procedural emotes/crouch are mapped; finger/detail bones stay native.
-	var map := {}
-	if _model_kind == "male":
-		map = {
-			"body": "Body", "hip_l": "UpperLeg.L", "hip_r": "UpperLeg.R",
-			"knee_l": "LowerLeg.L", "knee_r": "LowerLeg.R",
-			"sh_l": "UpperArm.L", "sh_r": "UpperArm.R",
-			"elb_l": "LowerArm.L", "elb_r": "LowerArm.R",
-		}
-	else:
-		map = {
-			"body": "Hips", "hip_l": "LeftUpLeg", "hip_r": "RightUpLeg",
-			"knee_l": "LeftLeg", "knee_r": "RightLeg",
-			"sh_l": "LeftArm", "sh_r": "RightArm",
-			"elb_l": "LeftForeArm", "elb_r": "RightForeArm",
-		}
-	var proxies := {
-		"body": body, "hip_l": _hip_l, "hip_r": _hip_r,
-		"knee_l": _knee_l, "knee_r": _knee_r,
-		"sh_l": _sh_l, "sh_r": _sh_r,
-		"elb_l": _elb_l, "elb_r": _elb_r,
-	}
-	for key in map:
-		var bone_index := int(_bone_indices.get(str(map[key]), -1))
-		var proxy: Node3D = proxies[key]
-		if bone_index >= 0 and proxy != null:
-			_skeleton.set_bone_pose_rotation(bone_index, proxy.quaternion)
-	# Keep root translations from the procedural choreography, but not its dummy torso height.
-	if _visual != null:
-		_visual.position = Vector3(body.position.x, body.position.y - _body_origin_y, body.position.z)
+## Anchor frame = bone origin (+ rest-pose offset) with the bone's rotation relative to its rest pose, so props are
+## authored in plain model axes whatever the bone's own axes are.
+func _anchor(a: Node3D, idx: int, rest_off: Vector3) -> void:
+	var pose := _s2m * _skel.get_bone_global_pose(idx)
+	var rest := _s2m * _skel.get_bone_global_rest(idx)
+	var rot := pose.basis.orthonormalized() * rest.basis.orthonormalized().inverse()
+	var off := Vector3.ZERO
+	if rest_off != Vector3.ZERO:
+		off = Vector3(0.0, rest_off.y - rest.origin.y, rest_off.z)
+	a.transform = Transform3D(rot, pose.origin + rot * off)
+
+
+## One footstep per foot plant of whatever clip is playing (the GLB clips have their own gait).
+func _detect_steps() -> void:
+	for i in 2:
+		var h: float = (_s2m * _skel.get_bone_global_pose(_foot_idx[i]).origin).y - _ground_ref
+		if h > 0.06:
+			_foot_up[i] = true
+		elif h < 0.03 and _foot_up[i]:
+			_foot_up[i] = false
+			if _speed_in > 0.5 and not _sitting_in:
+				step_pending = true
 
 
 ## speed = horizontal speed in m/s. Parameters are smoothed, so state changes blend.
-func animate(delta: float, speed: float, crouching: bool, sitting: bool = false, airborne: bool = false) -> void:
+func animate(delta: float, speed: float, crouching: bool, sitting: bool = false) -> void:
 	_t += delta
-	_update_model_animation(delta, speed, sitting, airborne)
+	_speed_in = speed
+	_sitting_in = sitting
 	var seat_h := sit_height
 	var moving := clampf(speed / 2.0, 0.0, 1.0)
 	var k := 1.0 - exp(-10.0 * delta)
@@ -411,14 +607,6 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false,
 	var amp_target := moving * lerpf(0.5, 0.85, _run) * lerpf(1.0, 0.5, _crouch)
 	_amp = lerpf(_amp, amp_target, k)
 	_phase += delta * speed * 2.3
-	# A foot lands each time sin(_phase) peaks (both legs are then at full stride): every PI of phase.
-	var idx := floori((_phase - PI * 0.5) / PI)
-	if _step_idx == -1000000:
-		_step_idx = idx
-	elif idx != _step_idx:
-		_step_idx = idx
-		if _amp > 0.1:
-			step_pending = true
 
 	_sit = lerpf(_sit, 1.0 if sitting else 0.0, 1.0 - exp(-9.0 * delta))
 	var s := sin(_phase)
@@ -456,9 +644,8 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false,
 	var breath := sin(_t * 1.6) * 0.03 * (1.0 - swing)
 	_sh_l.rotation.x = -s * _amp * 1.1 + breath + base * 0.25 - lean + 0.5 * _sit
 	_sh_r.rotation.x = s * _amp * 1.1 - breath + base * 0.25 - lean + 0.5 * _sit
-	if not _external_shoulder_pose:
-		_sh_l.rotation.z = -0.06
-		_sh_r.rotation.z = 0.06
+	_sh_l.rotation.z = -0.06
+	_sh_r.rotation.z = 0.06
 	var elbow := 0.12 + _run * 0.9 * swing + 0.9 * _sit
 	_elb_l.rotation.x = elbow
 	_elb_r.rotation.x = elbow
@@ -467,22 +654,19 @@ func animate(delta: float, speed: float, crouching: bool, sitting: bool = false,
 	_elb_l.rotation.z = 0.0
 	_elb_r.rotation.z = 0.0
 	body.position.x = 0.0
-	body.position.z = 0.0
+	body.position.z = _hip_z
 	for hn in [_hip_l, _hip_r]:
 		hn.rotation.y = 0.0
 		hn.rotation.z = 0.0
 	_sh_l.rotation.y = 0.0
 	_sh_r.rotation.y = 0.0
 	_apply_emote(delta)
-	if _ew > 0.001 or _crouch > 0.001 or _sit > 0.001:
-		_apply_proxy_pose()
-	elif _visual != null:
-		_visual.position = Vector3.ZERO
-	if _external_shoulder_pose:
-		_apply_external_right_shoulder_pose()
+	_sh_r_z_written = _sh_r.rotation.z
 
 
 func _apply_emote(delta: float) -> void:
+	_touched.clear()
+	_pos_w = 0.0
 	_pt += delta
 	if _emote >= 0:
 		var e: Dictionary = NetProtocol.EMOTES[_emote]
@@ -540,10 +724,13 @@ func _apply_emote(delta: float) -> void:
 	_mix(_sh_r, "y", p, "shr_y", w)
 	if p.has("body_px"):
 		body.position.x += float(p["body_px"]) * w
+		_pos_w = maxf(_pos_w, w)
 	if p.has("body_y"):
 		body.position.y += float(p["body_y"]) * w
+		_pos_w = maxf(_pos_w, w)
 	if p.has("ground"):
 		_ground_fix(w)
+		_pos_w = maxf(_pos_w, w)
 	if _cup != null and is_instance_valid(_cup) and _pose == NetProtocol.EMOTE_COFFEE:
 		# Keep the mug upright whatever the arm does; tip the rim toward the mouth while sipping.
 		var r2 := _coffee_lift(t)
@@ -739,7 +926,7 @@ func _coffee_lift(t: float) -> float:
 
 ## Mug tilt at the sip (radians, rim tipped toward the face) and where the near rim edge meets the lips (body space).
 const COFFEE_TILT := 0.4
-const COFFEE_LIPS := Vector3(0.0, 0.8, -0.158)
+## (per model: see _build_driver, `_lips`)
 const COFFEE_GRIP := Vector3(0.0, -0.03, 0.0)      ## where the hand holds the mug, relative to its origin: under the base
 
 
@@ -747,7 +934,7 @@ const COFFEE_GRIP := Vector3(0.0, -0.03, 0.0)      ## where the hand holds the m
 ## Two-bone IK in body space, so it holds for every arm length: the elbow stays low and out to the side.
 func _coffee_sip_arm() -> Array:
 	var tip := Basis(Vector3.RIGHT, COFFEE_TILT) * Vector3(0.0, 0.05, 0.048)       # near rim edge, relative to the mug origin
-	var target := COFFEE_LIPS - tip + Basis(Vector3.RIGHT, COFFEE_TILT) * COFFEE_GRIP   # where the hand has to be
+	var target := _lips - tip + Basis(Vector3.RIGHT, COFFEE_TILT) * COFFEE_GRIP   # where the hand has to be
 	var d := target - _sh_r.position
 	var l1 := -_elb_r.position.y
 	var l2 := _fore                                                                 # elbow -> hand
@@ -796,7 +983,7 @@ func _update_props(w: float) -> void:
 			var out := clampf((dur - _pt) / 0.3, 0.0, 1.0)
 			var k := (pop + sin(pop * PI) * 0.25) * out         # little overshoot, then shrinks away
 			_hi.scale = Vector3.ONE * maxf(k, 0.01)
-			_hi.position.y = 1.0 + floorf(sin(_pt * 6.0) * 2.0) * 0.012    # steps up and down (retro, not smooth)
+			_hi.position.y = _hi_y + floorf(sin(_pt * 6.0) * 2.0) * 0.012    # steps up and down (retro, not smooth)
 
 
 func _build_cup() -> Node3D:
@@ -820,7 +1007,7 @@ func _build_hi() -> Sprite3D:
 	sp.transparent = true
 	sp.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	sp.offset = Vector2(11.0, 0.0)          # beside the head (in texture pixels, so it holds from any camera angle)
-	sp.position = Vector3(0, 1.0, 0)
+	sp.position = Vector3(0, _hi_y, 0)
 	body.add_child(sp)
 	return sp
 
@@ -859,6 +1046,8 @@ static func _pixel_text_texture(text: String) -> ImageTexture:
 func _mix(n: Node3D, axis: String, p: Dictionary, key: String, w: float) -> void:
 	if not p.has(key):
 		return
+	var jk := _node_key(n)
+	_touched[jk] = maxf(float(_touched.get(jk, 0.0)), w)
 	match axis:
 		"x":
 			n.rotation.x = lerpf(n.rotation.x, float(p[key]), w)

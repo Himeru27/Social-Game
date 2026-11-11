@@ -262,6 +262,21 @@ func _build_panel() -> Control:
 	return panel
 
 
+const UNSUPPORTED_TIP := "Not available for the Quaternius character models (their geometry is kept exactly as supplied)."
+
+
+## Options the GLB models cannot honour without altering their meshes stay visible but are disabled.
+func _lock(key: String, ctrls: Array) -> void:
+	if CharacterModel.option_supported(key):
+		return
+	for c in ctrls:
+		if c is BaseButton:
+			(c as BaseButton).disabled = true
+		elif c is Slider:
+			(c as Slider).editable = false
+		c.tooltip_text = UNSUPPORTED_TIP
+
+
 func _tab(tabs: TabContainer, tab_name: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
 	scroll.name = tab_name
@@ -326,6 +341,7 @@ func _add_choice(parent: Control, label: String, key: String, names: Array[Strin
 		AudioManager.play_click()
 		_set_opt(key, i))
 	_refreshers.append(func() -> void: o.select(int(_app[key])))
+	_lock(key, [o])
 
 
 func _style_swatch(b: Button, color: Color, selected: bool) -> void:
@@ -357,6 +373,7 @@ func _add_swatches(parent: Control, label: String, key: String, colors: Array[Co
 	_refreshers.append(func() -> void:
 		for i in buttons.size():
 			_style_swatch(buttons[i], colors[i], int(_app[key]) == i))
+	_lock(key, buttons)
 
 
 func _add_range(parent: Control, label: String, key: String) -> void:
@@ -378,6 +395,7 @@ func _add_range(parent: Control, label: String, key: String) -> void:
 	_refreshers.append(func() -> void:
 		s.set_value_no_signal(float(_app[key]))
 		val.text = "%d%%" % roundi(s.value * 100.0))
+	_lock(key, [s])
 
 
 func _add_flag(parent: Control, label: String, bit: int) -> void:

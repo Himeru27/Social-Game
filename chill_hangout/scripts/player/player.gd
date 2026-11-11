@@ -311,7 +311,7 @@ func _physics_process(delta: float) -> void:
 
 	if wish != Vector3.ZERO:
 		model.rotation.y = lerp_angle(model.rotation.y, atan2(-wish.x, -wish.z), 1.0 - exp(-12.0 * delta))
-	model.animate(delta, Vector2(velocity.x, velocity.z).length(), crouching, false, not is_on_floor())
+	model.animate(delta, Vector2(velocity.x, velocity.z).length(), crouching)
 	_footsteps(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), crouching, wish != Vector3.ZERO)
 
 	_update_rig(delta)
