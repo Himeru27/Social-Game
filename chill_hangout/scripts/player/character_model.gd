@@ -765,53 +765,51 @@ func _arm_keys(p: Dictionary, nm: String, sd: float, a: Array) -> void:
 	p["el%s_x" % nm] = float(a[3])
 
 
-# Brazilian arm shapes, taken from the reference clip (fist at the chin, arm out low, fists together, ...).
-const _BR_CHIN := [1.19, 0.52, 1.18, 1.66]
-const _BR_LOW := [0.0, 0.08, -0.77, 0.89]
-const _BR_CHEST := [0.56, 0.13, 0.89, 1.61]
-const _BR_GUARD := [0.89, 0.43, 0.87, 1.82]
-const _BR_CROSS := [0.94, 0.83, 1.79, 0.81]
-## 8-beat sequence following the clip: [right arm, left arm] per beat.
-const _BR_SEQ := [[_BR_CHIN, _BR_LOW], [_BR_LOW, _BR_CHIN], [_BR_CHIN, _BR_LOW], [_BR_CHEST, _BR_CHEST],
-		[_BR_LOW, _BR_CHIN], [_BR_CHIN, _BR_LOW], [_BR_CROSS, _BR_LOW], [_BR_GUARD, _BR_GUARD]]
+# Brazilian arm shapes, measured from the Roblox reference recording (ScreenRecording 11-11-2026):
+#   OUT     = one arm thrown out to the side, slightly below shoulder height, hand open
+#   CROSSUP = the other forearm sweeps up across the face, hand ending above the opposite shoulder
+#   UP      = the "pop": both elbows bent, both open hands raised beside the head
+# Format: [shoulder flex, abduction (+ outward), forearm turn-in (+ toward centre), elbow flex]. Tune these first if a
+# pose looks off in-engine; every number is in radians.
+const _BR_OUT := [0.05, 1.25, 0.0, 0.35]
+const _BR_CROSSUP := [1.35, 0.15, 1.45, 1.10]
+const _BR_UP := [0.35, 1.05, -0.25, 1.95]
 
 
-## Brazilian funk "passinho" as in the reference clip: boxing guard (one fist at the chin, the other arm out low, fists
-## together, arm sweeping across the chest, high guard), a foot flicked out to the side on every beat (right, left,
-## right...), the hips shifting over the planted foot and a knee-bend bounce that is lowest on the kick.
+## Brazilian dance, rebuilt from the reference recording. Every beat the character holds one side (the arm on that side
+## sweeps up across the face while the other arm is thrown out, the same-side knee comes up and the torso rolls and
+## turns toward it) and then pops both open hands up beside the head right at the end of the beat. The side alternates
+## every beat. Timing comes from the music (89.8 bpm), so it lands on the beat of the audio.
 func _pose_brazilian(t: float) -> Dictionary:
 	var b: float = (t - NetProtocol.EMOTE_OFFSET_BRAZILIAN) / NetProtocol.EMOTE_BEAT_BRAZILIAN
 	var n: int = floori(b)
 	var f: float = b - float(n)
-	var s: float = 1.0 if posmod(n, 2) == 0 else -1.0       # +1: the character's right foot flicks on this beat
-	var env: float = smoothstep(0.0, 0.26, f) * (1.0 - smoothstep(0.40, 0.72, f))
+	var s: float = 1.0 if posmod(n, 2) == 0 else -1.0       # +1: the character's right side is the held side
+	# 1 while both hands are up (end of the beat, start of the next), 0 in the held pose.
+	var up: float = maxf(smoothstep(0.55, 0.80, f), 1.0 - smoothstep(0.0, 0.22, f))
+	var hold: float = 1.0 - up
+	var lift: float = smoothstep(0.02, 0.30, f) * (1.0 - smoothstep(0.62, 0.90, f))
 	var bounce: float = 0.5 + 0.5 * cos(TAU * f)
-	var bounce2: float = 0.5 + 0.5 * cos(TAU * 2.0 * f)
-	var lean := -0.10
-	var sq: float = 0.30 + 0.12 * bounce + 0.03 * bounce2
-	var dx: float = -s * 0.055 * smoothstep(0.0, 0.2, f) * (1.0 - smoothstep(0.55, 0.85, f))
-	var yaw: float = s * 0.22 * env
-	var p := {"ground": true, "body_x": lean, "body_px": dx, "body_ry": yaw}
+	var lean := -0.08
+	var sq: float = 0.28 + 0.10 * bounce
+	var yaw: float = s * 0.28 * hold
+	var dx: float = -s * 0.05 * hold
+	var p := {"ground": true, "body_x": lean, "body_z": s * 0.10 * hold, "body_px": dx, "body_ry": yaw}
 	var leff: float = (_thigh + _shin) * cos(sq)
 	var comp: float = asin(clampf(-dx / leff, -0.5, 0.5)) - 0.12 * yaw
 	for side in [-1, 1]:
 		var sd: float = float(side)
 		var nm := "r" if side > 0 else "l"
-		var lift: float = env if s * sd > 0.0 else 0.0
-		p["hip%s_x" % nm] = lerpf(sq - lean, 0.40 - lean, lift)
-		p["knee%s_x" % nm] = lerpf(-2.0 * sq, -1.55, lift)
-		p["hip%s_z" % nm] = sd * 0.36 * lift + comp * (1.0 - lift)
+		var l: float = lift if s * sd > 0.0 else 0.0
+		p["hip%s_x" % nm] = lerpf(sq - lean, 0.80 - lean, l)
+		p["knee%s_x" % nm] = lerpf(-2.0 * sq, -1.45, l)
+		p["hip%s_z" % nm] = sd * 0.08 * l + comp * (1.0 - l)
 		p["hip%s_y" % nm] = -yaw
-	var m: int = posmod(n, 8)
-	var cur: Array = _BR_SEQ[m]
-	var prev: Array = _BR_SEQ[posmod(m - 1, 8)]
-	var k: float = smoothstep(0.0, 0.30, f)
-	for side in [-1, 1]:
-		var idx: int = 0 if side > 0 else 1
-		var a: Array = _lerp_arm(prev[idx], cur[idx], k)
-		a[0] = float(a[0]) + 0.10 * bounce
-		a[3] = float(a[3]) + 0.10 * bounce
-		_arm_keys(p, "r" if side > 0 else "l", float(side), a)
+		var held: Array = _BR_CROSSUP if s * sd > 0.0 else _BR_OUT
+		var a: Array = _lerp_arm(held, _BR_UP, up)
+		a[0] = float(a[0]) + 0.08 * bounce
+		a[3] = float(a[3]) + 0.08 * bounce
+		_arm_keys(p, nm, sd, a)
 	return p
 
 
