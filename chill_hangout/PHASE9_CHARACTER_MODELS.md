@@ -38,3 +38,15 @@ with a tooltip (`_lock` in `character_customization.gd`).
 * GLB clips are only used for walk/run; the game's walk speed (3.2 m/s) plays the Run clip, sprint plays it faster.
 * Women's SitIdle has no sit-down motion (blended from idle); the Man's Sitting clip includes it.
 * Chat/name-tag heights, camera and collision were not changed (the models are 1.83 m / 1.75 m tall, within the old capsule).
+
+## Update: customization, seat and audio pass
+- **Hair / face / accessories:** `scripts/player/avatar_kit.gd` draws hair styles, eyebrows, mouth, expression, nose, eye shape
+  and face details on the head, fitted to measured head data (`AvatarKit.FACE`). Glasses and cap use the same numbers.
+- **Clothing styles:** the shirt, pants and shoe surfaces are split into regions at load (`_regionize`) so styles can hide
+  parts of them (tank top = no sleeves, shorts/capri = pants cut at the thigh/knee, sandals = no shoe upper). Longer
+  trousers, long sleeves, bare arms/legs, boots and sandals are tubes glued to the limb bones (`_build_clothes`).
+- **Arm / leg length:** limb bones are scaled each frame (`_apply_limb_scales`); hands and feet are counter-scaled and the
+  model is lifted for longer legs.
+- **Female mesh:** her single palette-textured surface is split into skin / hair / eyes / shirt / pants / shoes surfaces at load.
+- **Sitting:** per-model `sit_gap` / `sit_dz`; legs follow the driven pose while seated so feet are flat at any seat height.
+- **Footsteps:** per-foot adaptive plant detection; crouch steps come from the procedural gait phase.

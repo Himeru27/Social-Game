@@ -262,7 +262,7 @@ func _build_panel() -> Control:
 	return panel
 
 
-const UNSUPPORTED_TIP := "Not available for the Quaternius character models (their geometry is kept exactly as supplied)."
+const UNSUPPORTED_TIP := "Not available yet: this option needs new clothing or limb geometry that the character models do not have."
 
 
 ## Options the GLB models cannot honour without altering their meshes stay visible but are disabled.

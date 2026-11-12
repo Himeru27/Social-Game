@@ -158,8 +158,6 @@ func play_emote(id: int) -> bool:
 	emote = id
 	model.play_emote(id)
 	_play_fx(AudioManager.get_emote_sound(id))
-	if is_local and id == NetProtocol.EMOTE_AURA:
-		_snap_to_wall()
 	emote_changed.emit(id)
 	return true
 
